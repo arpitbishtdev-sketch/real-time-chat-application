@@ -164,8 +164,8 @@ See CLAUDE.md §6 for the authoritative list. Summarized: bcrypt password hashin
 - [ ] Persistent message history + pagination
 
 ### Real-Time
-- [ ] Instant messaging (Socket.IO)
-- [ ] Conversation rooms
+- [~] Instant messaging (Socket.IO) — authenticated connection lifecycle done (M4); actual message send/receive is M5
+- [x] Conversation rooms — join/leave, membership authorization, join/leave race guard done (M4)
 - [ ] Typing indicators
 - [ ] Online/offline presence
 - [ ] Last seen
@@ -185,9 +185,9 @@ See CLAUDE.md §6 for the authoritative list. Summarized: bcrypt password hashin
 
 ### Security
 - [x] Authentication (JWT + httpOnly cookies)
-- [~] Authorization (per-route, per-event) — per-route (REST) done via `assertParticipant`; per-event (sockets) is M4
+- [~] Authorization (per-route, per-event) — per-route (REST, M3) and `conversation:join`'s per-event check (M4) done via the same `assertParticipant`; remaining events (`message:send`, typing, read receipts) are M5/M7/M8
 - [x] Conversation membership validation
-- [~] Input validation (REST + sockets) — auth, user, and conversation REST endpoints done; sockets are M4/M5
+- [~] Input validation (REST + sockets) — auth, user, and conversation REST endpoints (M2/M3) and `conversation:join`/`leave` socket payloads (M4) done; remaining socket events are M5/M7/M8
 - [ ] Message size limits
 - [~] Rate limiting — auth endpoints only so far (register/login/refresh); message:send limiting is M5/REALTIME.md §25
 - [x] Secure cookie/token handling
@@ -350,6 +350,12 @@ See CLAUDE.md §6 for the authoritative list. Summarized: bcrypt password hashin
 **EDGE CASES:** #9 (unauthorized conversation access via socket), #11 (unauthorized room join), #25 (socket connection failure — bad/expired token), #27 (join/leave race, new).
 **DOCUMENTATION TO UPDATE:** REALTIME.md if the as-built lifecycle/event contract differs from the proposal.
 **INTERVIEW CONCEPTS:** WebSocket handshake vs. HTTP request; Socket.IO; rooms; socket authentication vs. authorization; connection lifecycle; why membership is re-verified server-side rather than trusted from the client.
+
+**Note on M4 as-built (resolved 2026-09-01):** all 12 tasks above were implemented as scoped, plus two points worth recording explicitly:
+- **File split (approved during M4's discuss/plan phase):** `conversation:join`/`leave` and the intent map live in a new `sockets/conversation.handlers.js`, not inline in `sockets/index.js` — keeps `index.js` to auth middleware and connection-lifecycle wiring only (CLAUDE.md §5's one-responsibility rule), a small addition to BACKEND.md §1's original folder sketch.
+- **Closed a loop M2 deliberately left open:** `auth.service.js`'s `logoutAllSessions` has called `io.in(user:<id>).disconnectSockets()` since M2, but `io` was undefined until `server.js` registered it via `app.set('io', io)` here — this milestone makes that call live and adds the first test able to verify it end-to-end (`tests/integration/socket.logoutAll.test.js`), closing out the socket-disconnect half of TESTING.md #33 that M2's tests could only mock.
+- **Error-code correction:** `conversation:join`'s "conversation doesn't exist" ack uses `CONVERSATION_NOT_FOUND` (reusing `assertParticipant()`'s real M3 error code as-is), not the generic `NOT_FOUND` an earlier REALTIME.md §11 sketch used — corrected in that table rather than inventing a second code.
+- **New dependencies:** `cookie` (parses the handshake's raw `Cookie` header — the one piece of cookie-parsing REST's `cookie-parser` doesn't expose standalone) and `socket.io-client` (devDependency, required by TESTING.md §5 to test against a real running Socket.IO server).
 
 #### M5 — Basic Real-Time Messaging
 

@@ -217,7 +217,7 @@ Living index — update statuses (`[ ]` / `[~]` / `[x]`) as milestones complete.
 | [x] M1 | Repository Setup & MERN Foundation | M0 |
 | [x] M2 | Authentication & User Management | M1 |
 | [x] M3 | Users & Conversation REST APIs | M2 |
-| [ ] M4 | Socket.IO Foundation & Connection Lifecycle | M2, M3 |
+| [x] M4 | Socket.IO Foundation & Connection Lifecycle | M2, M3 |
 | [ ] M5 | Basic Real-Time Messaging | M3, M4 |
 | [ ] M6 | Persistent Message History & Pagination | M5 |
 | [ ] M7 | Presence & Typing Indicators | M4 |

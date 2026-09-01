@@ -116,9 +116,11 @@ export async function logoutUser(refreshToken) {
 export async function logoutAllSessions(userId, io) {
   await Session.deleteMany({ userId });
 
-  // Socket.IO doesn't exist until M4 (REALTIME.md §26) — `io` is read from
-  // req.app.get('io') by the controller and will be undefined until M4
-  // registers it, so this stays a safe no-op until then.
+  // `io` is read from req.app.get('io') by the controller; server.js
+  // registers it via app.set('io', io) right after creating the Socket.IO
+  // server (M4). The `if` guard stays as defense in depth (e.g. a caller
+  // that constructs an app without ever attaching a socket server), not
+  // because this is expected to be unset in normal operation anymore.
   if (io) {
     io.in(`user:${userId}`).disconnectSockets();
   }

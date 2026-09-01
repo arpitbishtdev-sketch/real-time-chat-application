@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "bcrypt": "^6.0.0",
+    "cookie": "^0.7.2",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
@@ -36,6 +37,7 @@
     "mongodb-memory-server": "^11.2.0",
     "nodemon": "^3.1.14",
     "prettier": "^3.9.6",
+    "socket.io-client": "^4.8.3",
     "supertest": "^7.2.2",
     "vitest": "^4.1.11"
   }

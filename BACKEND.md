@@ -36,7 +36,8 @@ backend/
 │   │   ├── rateLimit.js
 │   │   └── errorHandler.js
 │   ├── sockets/
-│   │   ├── index.js           # io.use auth middleware, connection wiring
+│   │   ├── index.js                  # io.use auth middleware, connection lifecycle, handler registration (added M4)
+│   │   ├── conversation.handlers.js  # conversation:join/leave + "latest intent wins" map (added M4 — deliberate split from index.js, see REALTIME.md §7)
 │   │   ├── presence.js
 │   │   ├── message.handlers.js
 │   │   └── typing.handlers.js
@@ -45,7 +46,7 @@ backend/
 │   │   ├── common.schema.js   # shared `objectId` Zod validator (added M3)
 │   │   ├── user.schema.js
 │   │   ├── conversation.schema.js
-│   │   └── socket.schema.js
+│   │   └── socket.schema.js   # conversation:join/leave payload shape (added M4)
 │   ├── utils/
 │   │   ├── AppError.js
 │   │   ├── asyncHandler.js
@@ -138,6 +139,8 @@ No `userAgent`/`ip`/device-label fields are modeled in MVP — not needed for th
 **What logout invalidates:** `POST /auth/logout` reads the caller's own refresh token, extracts `sid`, and deletes **only that one** `Session` document, then clears that response's cookies. Every other device's `Session` document (and therefore its refresh token) is untouched and keeps working. The access token isn't force-revoked (it's stateless, per §6 above) — it simply expires naturally within 15 minutes and can no longer be renewed on that device, since its `Session` is gone.
 
 **What "logout all devices" does:** a separate endpoint, `POST /auth/logout-all` (see §15), deletes **every** `Session` document for `req.userId`, clears the caller's own cookies, and additionally calls `io.in(`user:<userId>`).disconnectSockets()` (REALTIME.md §26) to immediately kick any currently-open sockets for that user, rather than waiting for their access tokens to expire naturally. This is the only case that needs the proactive socket-kick — a single-device logout does not, since it was never intended to affect other devices' live connections anyway.
+
+**Resolved 2026-09-01 — M4:** this call was a documented no-op from M2 through M3 (`io` didn't exist yet). `server.js` now registers the live Socket.IO instance via `app.set('io', io)` immediately after creating it, so `logoutAllSessions` actually disconnects live sockets end-to-end — verified by `tests/integration/socket.logoutAll.test.js` connecting a real socket, calling logout-all, and asserting it receives `disconnect`.
 
 **How REST authentication observes revocation:** the access-token check (`authenticate` middleware, §6) never queries the DB — unchanged, still fully stateless. Revocation is only observable at `POST /auth/refresh`: it looks up `Session.findOne({_id: sid, userId})`; missing (deleted or expired-and-TTL-reaped) → `401 INVALID_REFRESH_TOKEN`, exactly like today, just checked against a session document instead of a counter comparison.
 
