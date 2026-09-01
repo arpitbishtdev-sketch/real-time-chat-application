@@ -48,7 +48,8 @@ backend/
 │   ├── utils/
 │   │   ├── AppError.js
 │   │   ├── asyncHandler.js
-│   │   └── tokens.js          # sign/verify access & refresh JWTs
+│   │   ├── tokens.js          # sign/verify access & refresh JWTs
+│   │   └── cookies.js         # set/clear accessToken & refreshToken cookies (added M2 — shared by register/login/refresh/logout/logout-all)
 │   ├── app.js                  # express app, middleware wiring
 │   └── server.js               # http server + socket.io attach + listen
 └── tests/
@@ -111,7 +112,7 @@ Unexpected (non-`AppError`) errors are logged with full stack server-side and re
 
 Token details:
 - **Access token**: 15 min expiry, payload `{sub: userId}`, signed with `JWT_ACCESS_SECRET`. Fully stateless — verified by signature alone, no DB lookup on every request (this is the whole point of using JWTs; see ARCHITECTURE.md §18's decision log). Its short expiry, not a per-request revocation check, is what bounds the exposure window of a compromised token.
-- **Refresh token**: 7 day expiry, payload `{sub: userId, sid: sessionId}`, signed with `JWT_REFRESH_SECRET`, stored as an httpOnly cookie scoped to `/api/auth/refresh` only. `sessionId` is the `_id` of a `Session` document (see §14) created at login. Unlike the access token, the refresh token **is** checked against the database on use — see §6a.
+- **Refresh token**: 7 day expiry, payload `{sub: userId, sid: sessionId}`, signed with `JWT_REFRESH_SECRET`, stored as an httpOnly cookie scoped to `/api/auth` (**corrected 2026-09-01** — originally scoped to `/api/auth/refresh` only, but that meant `POST /auth/logout`/`logout-all` never received the cookie at all, since a cookie's path scope isn't a prefix match across sibling routes; without it, single-device logout couldn't identify which `Session` to delete, silently doing nothing. `/api/auth` still keeps the token off every non-auth REST call — the actual isolation this scoping exists for — while reaching every auth endpoint that legitimately needs it). `sessionId` is the `_id` of a `Session` document (see §14) created at login. Unlike the access token, the refresh token **is** checked against the database on use — see §6a.
 
 ### 6a. Session Model & Multi-Device Logout Semantics
 

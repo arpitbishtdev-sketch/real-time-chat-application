@@ -6,6 +6,7 @@ import morgan from 'morgan';
 
 import { env } from './config/env.js';
 import { errorHandler } from './middleware/errorHandler.js';
+import { createAuthRouter } from './routes/auth.routes.js';
 
 export function createApp() {
   const app = express();
@@ -26,6 +27,8 @@ export function createApp() {
   app.get('/api/health', (req, res) => {
     res.status(200).json({ status: 'ok' });
   });
+
+  app.use('/api/auth', createAuthRouter());
 
   // No route matched.
   app.use((req, res) => {

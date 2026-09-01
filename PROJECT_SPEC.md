@@ -155,8 +155,8 @@ See CLAUDE.md §6 for the authoritative list. Summarized: bcrypt password hashin
 > Update this checklist as development progresses. `[ ]` not started, `[~]` in progress, `[x]` done + tested.
 
 ### Core
-- [ ] User registration
-- [ ] Login / logout
+- [x] User registration
+- [x] Login / logout
 - [ ] User profile (view/edit)
 - [ ] User search
 - [ ] 1-to-1 conversation creation
@@ -184,13 +184,13 @@ See CLAUDE.md §6 for the authoritative list. Summarized: bcrypt password hashin
 - [ ] Message ordering guarantees
 
 ### Security
-- [ ] Authentication (JWT + httpOnly cookies)
+- [x] Authentication (JWT + httpOnly cookies)
 - [ ] Authorization (per-route, per-event)
 - [ ] Conversation membership validation
-- [ ] Input validation (REST + sockets)
+- [~] Input validation (REST + sockets) — auth endpoints only so far
 - [ ] Message size limits
-- [ ] Rate limiting
-- [ ] Secure cookie/token handling
+- [~] Rate limiting — auth endpoints only so far (register/login/refresh); message:send limiting is M5/REALTIME.md §25
+- [x] Secure cookie/token handling
 - [ ] XSS-safe message rendering
 
 ## 19. Master Milestone Roadmap
