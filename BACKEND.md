@@ -42,6 +42,7 @@ backend/
 │   │   └── typing.handlers.js
 │   ├── validation/
 │   │   ├── auth.schema.js
+│   │   ├── common.schema.js   # shared `objectId` Zod validator (added M3)
 │   │   ├── user.schema.js
 │   │   ├── conversation.schema.js
 │   │   └── socket.schema.js
@@ -49,7 +50,8 @@ backend/
 │   │   ├── AppError.js
 │   │   ├── asyncHandler.js
 │   │   ├── tokens.js          # sign/verify access & refresh JWTs
-│   │   └── cookies.js         # set/clear accessToken & refreshToken cookies (added M2 — shared by register/login/refresh/logout/logout-all)
+│   │   ├── cookies.js         # set/clear accessToken & refreshToken cookies (added M2 — shared by register/login/refresh/logout/logout-all)
+│   │   └── cursor.js          # base64-JSON cursor encode/decode (added M3 — shared by conversation-list and, from M6, message pagination)
 │   ├── app.js                  # express app, middleware wiring
 │   └── server.js               # http server + socket.io attach + listen
 └── tests/
@@ -225,6 +227,9 @@ Response shape:
   ```
 
 `_id` is the tiebreaker precisely because two messages can legitimately share the same millisecond `createdAt` under concurrent sends (edge case #19/#28) — comparing `createdAt` alone would either skip the boundary message (`$lt`/`$gt` strict) or return it twice (`$lte`/`$gte`), depending on which naive comparator was chosen. The tuple form is correct in both directions and is required, not optional, for both the history endpoint (M6) and the reconnection sync endpoint (M9). See TESTING.md #32 for the same-millisecond boundary test.
+
+**Conversation-list cursor (resolved 2026-09-01 — M3):** `GET /conversations` uses the same tuple-cursor pattern, keyed on `(lastMessageAt, _id)`, sorted `(lastMessageAt: -1, _id: -1)`. This matters even before any messages exist: a brand-new conversation has no `lastMessageAt` at all, and MongoDB's sort/comparison order places a missing/`null` field before every real `Date` value — so `{lastMessageAt: -1}` alone already puts actively-messaged conversations above never-messaged ones, and `_id` breaks ties among conversations that share the same (possibly absent) `lastMessageAt`, exactly as `_id` does for messages above. The cursor query mirrors §12's `$or` shape, with `cursor.lastMessageAt` treated as `null` (matching both `null` and missing) rather than a sentinel date.
+**DECISION:** reuse the tuple-cursor pattern rather than a `lastMessageAt`-only comparator. **WHY:** every conversation created in M3 has no messages yet, so a naive single-field cursor would tie on `undefined` for every row and silently skip/duplicate across a page boundary — the exact class of bug §12 already exists to prevent for messages. **ALTERNATIVE CONSIDERED:** sort by `createdAt` instead once a conversation has never been messaged, falling back only for ties — rejected as two different comparators to maintain and explain instead of one applied uniformly.
 
 **Bounded connection timeouts (resolved 2026-08-31 — needed so a MongoDB outage fails requests cleanly instead of hanging indefinitely, per TESTING.md #31):** the Mongoose connection (`config/db.js`) sets `serverSelectionTimeoutMS: 5000` and `bufferCommands: false`. Without this, Mongoose's default behavior queues operations indefinitely while disconnected, which would turn "the database is briefly unavailable" into "requests hang forever" instead of "requests fail with a clean 5xx within ~5 seconds" — the actual documented invariant for edge case #24/#31.
 
@@ -408,6 +413,19 @@ All routes prefixed `/api`. "Auth" = requires valid `accessToken`. "Authz" = add
 
 ### Conversations
 
+**Response shape (both `POST /conversations` and `GET /conversations`, resolved 2026-09-01 — M3):** a conversation is always serialized from the requester's point of view, never as a raw document:
+```json
+{
+  "_id": "...",
+  "otherParticipant": { "_id": "...", "displayName": "...", "avatarUrl": "...", "statusText": "...", "lastSeenAt": "..." },
+  "lastMessageAt": null,
+  "lastMessagePreview": null,
+  "unreadCount": 0,
+  "createdAt": "..."
+}
+```
+`unreadCount` is always projected down to the single number for the requester — the underlying `Map<userId, count>` (§14) is never serialized whole, so one participant can never see another's unread count.
+
 **POST `/conversations`**
 - Auth: yes. Authz: implicit (creating for self + target only).
 - Body: `{participantId}`
@@ -416,21 +434,23 @@ All routes prefixed `/api`. "Auth" = requires valid `accessToken`. "Authz" = add
 
 **GET `/conversations`**
 - Auth: yes.
-- Query: `cursor?`, `limit` (default 20).
-- Response: `200 {conversations: [...], nextCursor}` — each item includes the *other* participant's public profile, `lastMessagePreview`, `lastMessageAt`, `unreadCount` for the requester.
+- Query: `cursor?`, `limit` (default 20, max 100).
+- Response: `200 {conversations: [...], nextCursor}`, newest-active-first (see the cursor decision at the end of §12).
 - Errors: none beyond auth.
 
 **GET `/conversations/:id/messages`**
 - Auth: yes. Authz: requester must be a participant.
 - Query: `cursor?`, `limit` (default 30, max 100).
 - Response: `200 {messages: [...], nextCursor}`.
-- Errors: `403 FORBIDDEN` (not a participant), `404 CONVERSATION_NOT_FOUND`.
+- Errors: `400 VALIDATION_ERROR` (malformed conversation id or cursor), `403 FORBIDDEN` (not a participant), `404 CONVERSATION_NOT_FOUND`.
+- **M3 status:** route, auth, authz, and query-shape validation are fully wired; the handler always returns `{messages: [], nextCursor: null}` since no `Message` document can exist yet (the `Message` model itself is an M5 deliverable — PROJECT_SPEC.md M3 task 7). M6 replaces the body of this handler with the real tuple-cursor query below; the route contract does not change.
 
 **POST `/conversations/:id/read`**
 - Auth: yes. Authz: requester must be a participant.
 - Body: `{upToMessageId}` (marks all messages up to and including this one as read; mirrors/complements the real-time `message:read` socket event for the case where the client needs a REST fallback, e.g. reconciling on page load before the socket connects).
 - Response: `200 {unreadCount: 0}`.
-- Errors: `403 FORBIDDEN`, `404 CONVERSATION_NOT_FOUND`.
+- Errors: `400 VALIDATION_ERROR` (malformed conversation id or `upToMessageId`), `403 FORBIDDEN`, `404 CONVERSATION_NOT_FOUND`.
+- **M3 status:** route, auth, authz, and body-shape validation are fully wired; `upToMessageId` is checked for well-formedness only — it isn't looked up, since real read-state mutation lands in M8.
 
 Message *sending* is intentionally **not** a REST endpoint — see §13.
 

@@ -7,6 +7,8 @@ import morgan from 'morgan';
 import { env } from './config/env.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { createAuthRouter } from './routes/auth.routes.js';
+import { createUserRouter } from './routes/user.routes.js';
+import { createConversationRouter } from './routes/conversation.routes.js';
 
 export function createApp() {
   const app = express();
@@ -29,6 +31,8 @@ export function createApp() {
   });
 
   app.use('/api/auth', createAuthRouter());
+  app.use('/api/users', createUserRouter());
+  app.use('/api/conversations', createConversationRouter());
 
   // No route matched.
   app.use((req, res) => {

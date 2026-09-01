@@ -157,10 +157,10 @@ See CLAUDE.md §6 for the authoritative list. Summarized: bcrypt password hashin
 ### Core
 - [x] User registration
 - [x] Login / logout
-- [ ] User profile (view/edit)
-- [ ] User search
-- [ ] 1-to-1 conversation creation
-- [ ] Conversation list (with unread counts, last message preview)
+- [x] User profile (view/edit)
+- [x] User search
+- [x] 1-to-1 conversation creation
+- [~] Conversation list (with unread counts, last message preview) — route/pagination/authz done; real counts/previews populate once M5 writes messages
 - [ ] Persistent message history + pagination
 
 ### Real-Time
@@ -185,9 +185,9 @@ See CLAUDE.md §6 for the authoritative list. Summarized: bcrypt password hashin
 
 ### Security
 - [x] Authentication (JWT + httpOnly cookies)
-- [ ] Authorization (per-route, per-event)
-- [ ] Conversation membership validation
-- [~] Input validation (REST + sockets) — auth endpoints only so far
+- [~] Authorization (per-route, per-event) — per-route (REST) done via `assertParticipant`; per-event (sockets) is M4
+- [x] Conversation membership validation
+- [~] Input validation (REST + sockets) — auth, user, and conversation REST endpoints done; sockets are M4/M5
 - [ ] Message size limits
 - [~] Rate limiting — auth endpoints only so far (register/login/refresh); message:send limiting is M5/REALTIME.md §25
 - [x] Secure cookie/token handling
@@ -312,9 +312,11 @@ See CLAUDE.md §6 for the authoritative list. Summarized: bcrypt password hashin
 - **Creating a conversation between the same pair concurrently (`Promise.all`) also returns the same document from both calls, with no unhandled 500** — TESTING.md #26.
 - A non-participant gets `403 FORBIDDEN` on every conversation-scoped route, never a data leak.
 - Search excludes the requester and matches case-insensitively.
-- Pagination cursor is stable — no duplicate/skipped items across pages, including at a same-millisecond boundary (tested) — TESTING.md #32.
-**TESTING REQUIREMENTS:** integration tests for every endpoint, including the 403/404 authorization paths, the concurrent-creation race, and the same-millisecond cursor boundary.
-**EDGE CASES:** #9 (unauthorized conversation access), #12 (invalid conversation ID — malformed and well-formed-but-nonexistent), #26 (concurrent conversation creation, new), #32 (same-millisecond cursor boundary, new).
+- The conversation-list cursor (`GET /conversations`, keyed on `(lastMessageAt, _id)` — BACKEND.md §12) is stable: no duplicate/skipped items across pages (tested).
+**TESTING REQUIREMENTS:** integration tests for every endpoint, including the 403/404 authorization paths and the concurrent-creation race.
+**EDGE CASES:** #9 (unauthorized conversation access), #12 (invalid conversation ID — malformed and well-formed-but-nonexistent), #26 (concurrent conversation creation, new).
+
+**Note on TESTING.md #32 (resolved 2026-09-01):** an earlier draft of this milestone's acceptance criteria and edge-case list cited #32 (same-millisecond `Message.createdAt` cursor boundary) here. That test is physically impossible in M3 — the `Message` model doesn't exist until M5 (task 1 above defers `GET /conversations/:id/messages` to an empty-array stub for exactly this reason), so there is no `createdAt` to collide on yet. #32 is fully and exclusively owned by M6 (see M6 task 6/acceptance criteria below), which is the milestone that actually creates colliding-timestamp messages and queries them. M3 instead gets its own, real same-boundary-class test: the conversation-list cursor tie-breaking on `_id` when every conversation shares the same (absent) `lastMessageAt` — see the acceptance criterion above.
 **DOCUMENTATION TO UPDATE:** BACKEND.md if the contract changed during implementation; PROJECT_SPEC.md checklist.
 **INTERVIEW CONCEPTS:** idempotent resource creation via a unique compound index, including the catch-and-refetch pattern for the concurrent-creation race; cursor vs. offset pagination and the exact tuple-comparison boundary condition; authentication vs. authorization; 403-vs-404 existence-leak tradeoff (ARCHITECTURE.md §16, deliberately retained, not an oversight).
 
