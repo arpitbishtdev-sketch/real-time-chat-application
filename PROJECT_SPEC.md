@@ -160,8 +160,8 @@ See CLAUDE.md §6 for the authoritative list. Summarized: bcrypt password hashin
 - [x] User profile (view/edit)
 - [x] User search
 - [x] 1-to-1 conversation creation
-- [~] Conversation list (with unread counts, last message preview) — route/pagination/authz done (M3); `unreadCount`/`lastMessageAt`/`lastMessagePreview` now written atomically by M5's send path; still returns an empty message page until M6 reads it
-- [ ] Persistent message history + pagination
+- [x] Conversation list (with unread counts, last message preview) — route/pagination/authz (M3); `unreadCount`/`lastMessageAt`/`lastMessagePreview` written atomically by M5's send path
+- [x] Persistent message history + pagination — `GET /conversations/:id/messages` (M6)
 
 ### Real-Time
 - [x] Instant messaging (Socket.IO) — authenticated connection lifecycle (M4) + live send/receive/broadcast via `message:send`/`message:new` (M5)
@@ -181,7 +181,7 @@ See CLAUDE.md §6 for the authoritative list. Summarized: bcrypt password hashin
 - [x] Message acknowledgements — `{ok, message?, error?}` ack contract (M5, REALTIME.md §11)
 - [ ] Server restart recovery (documented degradation)
 - [ ] Multiple tabs/devices support
-- [x] Message ordering guarantees — per-conversation in-process send-ordering chain (M5, BACKEND.md §13c)
+- [x] Message ordering guarantees — per-conversation in-process send-ordering chain (M5, BACKEND.md §13c); read-side tuple-cursor ordering, correct under same-millisecond ties (M6, BACKEND.md §12, TESTING.md #32)
 
 ### Security
 - [x] Authentication (JWT + httpOnly cookies)

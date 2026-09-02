@@ -1,5 +1,5 @@
 import { messageSendSchema } from '../validation/socket.schema.js';
-import { sendMessage } from '../services/conversation.service.js';
+import { sendMessage, shapeMessage } from '../services/conversation.service.js';
 import { AppError } from '../utils/AppError.js';
 import { env } from '../config/env.js';
 
@@ -22,17 +22,6 @@ function toAckError(err) {
       code: 'INTERNAL_ERROR',
       message: env.isProduction ? 'An unexpected error occurred.' : err.message,
     },
-  };
-}
-
-function shapeMessage(message) {
-  return {
-    _id: String(message._id),
-    conversationId: String(message.conversationId),
-    senderId: String(message.senderId),
-    text: message.text,
-    status: message.status,
-    createdAt: message.createdAt.toISOString(),
   };
 }
 

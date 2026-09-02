@@ -1,10 +1,12 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach, beforeEach } from 'vitest';
+import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import mongoose from 'mongoose';
 
 import { createApp } from '../../src/app.js';
 import { connect, disconnect, clearDatabase } from '../helpers/mongoMemory.js';
 import { registerUser } from '../helpers/testUsers.js';
+import { sendMessage } from '../../src/services/conversation.service.js';
 
 let app;
 
@@ -24,7 +26,7 @@ async function createConversation(app, initiator, participantId) {
 }
 
 describe('GET /api/conversations/:id/messages', () => {
-  it('returns an empty page for a participant (real history lands in M5/M6)', async () => {
+  it('returns an empty page for a conversation with no messages yet', async () => {
     const a = await registerUser(app);
     const b = await registerUser(app);
     const conversation = await createConversation(app, a, b.user._id);
@@ -35,6 +37,45 @@ describe('GET /api/conversations/:id/messages', () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ messages: [], nextCursor: null });
+  });
+
+  it('returns persisted messages newest-first and paginates across pages with a stable cursor', async () => {
+    const a = await registerUser(app);
+    const b = await registerUser(app);
+    const conversation = await createConversation(app, a, b.user._id);
+
+    // Sent oldest to newest; each direct sendMessage() call gets its own
+    // createdAt, so `first` < `second` < `third`.
+    await sendMessage(conversation._id, a.user._id, {
+      clientMessageId: randomUUID(),
+      text: 'first',
+    });
+    await sendMessage(conversation._id, b.user._id, {
+      clientMessageId: randomUUID(),
+      text: 'second',
+    });
+    await sendMessage(conversation._id, a.user._id, {
+      clientMessageId: randomUUID(),
+      text: 'third',
+    });
+
+    const page1 = await request(app)
+      .get(`/api/conversations/${conversation._id}/messages`)
+      .query({ limit: 2 })
+      .set('Cookie', [a.authCookie]);
+
+    expect(page1.status).toBe(200);
+    expect(page1.body.messages.map((m) => m.text)).toEqual(['third', 'second']);
+    expect(page1.body.nextCursor).not.toBeNull();
+
+    const page2 = await request(app)
+      .get(`/api/conversations/${conversation._id}/messages`)
+      .query({ limit: 2, cursor: page1.body.nextCursor })
+      .set('Cookie', [a.authCookie]);
+
+    expect(page2.status).toBe(200);
+    expect(page2.body.messages.map((m) => m.text)).toEqual(['first']);
+    expect(page2.body.nextCursor).toBeNull();
   });
 
   it('rejects a non-participant with 403 FORBIDDEN, not a data leak', async () => {

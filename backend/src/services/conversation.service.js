@@ -27,6 +27,21 @@ function getUnreadCountFor(conversation, userId) {
   return conversation.unreadCount?.[key] ?? 0;
 }
 
+// Shared message shape (REALTIME.md §10) — reused by both the
+// `message:send`/`message:new` socket payloads (sockets/message.handlers.js)
+// and this file's REST history endpoint, so the two delivery paths never
+// drift into two different serializations of the same document.
+export function shapeMessage(message) {
+  return {
+    _id: String(message._id),
+    conversationId: String(message.conversationId),
+    senderId: String(message.senderId),
+    text: message.text,
+    status: message.status,
+    createdAt: message.createdAt.toISOString(),
+  };
+}
+
 function shapeConversation(conversation, userId) {
   const otherParticipant = conversation.participants.find(
     (p) => String(p._id ?? p) !== String(userId)
@@ -209,22 +224,51 @@ export async function listConversations(userId, { cursor, limit }) {
   };
 }
 
-// Route/authz/shape wired now; the real query against persisted messages
-// is implemented in M5/M6 once the Message model exists — this
-// deliberately returns an empty page until then (PROJECT_SPEC.md M3 task 7).
-export async function getConversationMessages(conversationId, { cursor }) {
+// "Load older" history for a conversation (BACKEND.md §12), newest-first,
+// backed by the {conversationId, createdAt, _id} compound index (§14).
+// Caller (the controller) has already re-verified membership via
+// assertParticipant — this only builds and runs the query.
+export async function getConversationMessages(conversationId, { cursor, limit }) {
+  const filter = { conversationId };
+
   if (cursor) {
+    let decoded;
     try {
-      const decoded = decodeCursor(cursor);
-      if (typeof decoded.id !== 'string' || typeof decoded.createdAt !== 'string') {
-        throw new Error('Malformed pagination cursor.');
-      }
+      decoded = decodeCursor(cursor);
     } catch (err) {
       throw new AppError(400, 'VALIDATION_ERROR', err.message);
     }
+    if (typeof decoded.id !== 'string' || typeof decoded.createdAt !== 'string') {
+      throw new AppError(400, 'VALIDATION_ERROR', 'Malformed pagination cursor.');
+    }
+    const cursorDate = new Date(decoded.createdAt);
+    if (Number.isNaN(cursorDate.getTime())) {
+      throw new AppError(400, 'VALIDATION_ERROR', 'Malformed pagination cursor.');
+    }
+    // Tuple comparison, never a naive `createdAt`-only filter — two
+    // messages can legitimately share the same millisecond `createdAt`
+    // under concurrent sends, and a single-field comparator would either
+    // skip or duplicate the boundary message (BACKEND.md §12, TESTING.md #32).
+    filter.$or = [
+      { createdAt: { $lt: cursorDate } },
+      { createdAt: cursorDate, _id: { $lt: decoded.id } },
+    ];
   }
 
-  return { messages: [], nextCursor: null };
+  const docs = await Message.find(filter)
+    .sort({ createdAt: -1, _id: -1 })
+    .limit(limit + 1)
+    .lean();
+
+  const hasMore = docs.length > limit;
+  const page = hasMore ? docs.slice(0, limit) : docs;
+  const last = page[page.length - 1];
+
+  const nextCursor = hasMore
+    ? encodeCursor({ createdAt: last.createdAt.toISOString(), id: String(last._id) })
+    : null;
+
+  return { messages: page.map(shapeMessage), nextCursor };
 }
 
 // Route/authz/shape wired now; real read-state mutation lands in M8 once

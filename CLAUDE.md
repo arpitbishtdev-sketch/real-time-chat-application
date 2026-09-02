@@ -219,7 +219,7 @@ Living index — update statuses (`[ ]` / `[~]` / `[x]`) as milestones complete.
 | [x] M3 | Users & Conversation REST APIs | M2 |
 | [x] M4 | Socket.IO Foundation & Connection Lifecycle | M2, M3 |
 | [x] M5 | Basic Real-Time Messaging | M3, M4 |
-| [ ] M6 | Persistent Message History & Pagination | M5 |
+| [x] M6 | Persistent Message History & Pagination | M5 |
 | [ ] M7 | Presence & Typing Indicators | M4 |
 | [ ] M8 | Read Receipts, Delivery State & Unread Counts | M5, M6 |
 | [ ] M9 | Reconnection, Offline Sync & Idempotency | M5, M6, M8 |

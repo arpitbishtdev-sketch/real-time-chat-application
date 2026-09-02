@@ -444,9 +444,9 @@ All routes prefixed `/api`. "Auth" = requires valid `accessToken`. "Authz" = add
 **GET `/conversations/:id/messages`**
 - Auth: yes. Authz: requester must be a participant.
 - Query: `cursor?`, `limit` (default 30, max 100).
-- Response: `200 {messages: [...], nextCursor}`.
+- Response: `200 {messages: [...], nextCursor}` — `messages` newest-first, each shaped per REALTIME.md §10's `{_id, conversationId, senderId, text, status, createdAt}` (the same shape `message:new` uses, so REST history and the live socket feed never disagree on message shape).
 - Errors: `400 VALIDATION_ERROR` (malformed conversation id or cursor), `403 FORBIDDEN` (not a participant), `404 CONVERSATION_NOT_FOUND`.
-- **M3 status:** route, auth, authz, and query-shape validation are fully wired; the handler always returns `{messages: [], nextCursor: null}` since no `Message` document can exist yet (the `Message` model itself is an M5 deliverable — PROJECT_SPEC.md M3 task 7). M6 replaces the body of this handler with the real tuple-cursor query below; the route contract does not change.
+- **Implemented M6.** Runs the exact tuple-cursor query from §12's "older direction" against the `{conversationId, createdAt, _id}` compound index (§14) — never a naive `createdAt`-only filter. The `?after=` "newer direction" (reconnection/missed-message sync, REALTIME.md §19) is a separate, not-yet-built M9 deliverable; this route does not accept an `after` param yet.
 
 **POST `/conversations/:id/read`**
 - Auth: yes. Authz: requester must be a participant.
