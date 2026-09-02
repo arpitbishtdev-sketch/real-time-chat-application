@@ -1,9 +1,19 @@
 import { Conversation } from '../models/Conversation.js';
 import { User } from '../models/User.js';
+import { Message } from '../models/Message.js';
 import { AppError } from '../utils/AppError.js';
 import { encodeCursor, decodeCursor } from '../utils/cursor.js';
 
 const PUBLIC_USER_FIELDS = 'displayName avatarUrl statusText lastSeenAt';
+
+// No exact truncation length is specified in BACKEND.md ("truncated text of
+// last message") — 120 chars is a reasonable conversation-list preview
+// length, kept local to this one call site since nothing else needs it.
+const PREVIEW_MAX_LENGTH = 120;
+
+function buildPreview(text) {
+  return text.length > PREVIEW_MAX_LENGTH ? `${text.slice(0, PREVIEW_MAX_LENGTH)}…` : text;
+}
 
 function participantsKey(idA, idB) {
   return [String(idA), String(idB)].sort().join('_');
@@ -99,6 +109,61 @@ export async function createConversation(userId, participantId) {
 
   await conversation.populate('participants', PUBLIC_USER_FIELDS);
   return { conversation: shapeConversation(conversation, userId), created };
+}
+
+// Persists a message sent via the `message:send` socket event (REALTIME.md
+// §11) and, only on a genuine (non-duplicate) insert, applies the two
+// atomic Conversation-metadata updates from BACKEND.md §13b. Membership is
+// re-checked here (never inferred from the client-supplied conversationId
+// alone), matching every other conversation-scoped action. A duplicate
+// `clientMessageId` retry returns the original message and does nothing
+// else — no second unread increment, no re-touched preview/timestamp
+// (REALTIME.md §13).
+export async function sendMessage(conversationId, senderId, { clientMessageId, text }) {
+  const conversation = await assertParticipant(conversationId, senderId);
+
+  let message;
+  try {
+    message = await Message.create({ conversationId, senderId, clientMessageId, text });
+  } catch (err) {
+    if (err.code !== 11000) {
+      throw new AppError(500, 'PERSIST_FAILED', 'Failed to persist message.');
+    }
+    // Lost the send race to a retry of the exact same logical send (or the
+    // original request actually succeeded silently) — return the
+    // already-persisted message rather than surfacing the duplicate-key
+    // error (REALTIME.md §13).
+    const existing = await Message.findOne({ conversationId, clientMessageId });
+    if (!existing) {
+      // The winner's insert must have already succeeded for ours to have
+      // collided on the unique index — unreachable in practice.
+      throw new AppError(500, 'PERSIST_FAILED', 'Failed to persist message.');
+    }
+    return { message: existing, created: false };
+  }
+
+  const recipientId = conversation.participants
+    .map((p) => String(p))
+    .find((id) => id !== String(senderId));
+
+  // Two separate atomic single-document operations, not a combined update
+  // — the unread increment must always apply per distinct message, while
+  // the preview/timestamp set only applies conditionally (BACKEND.md §13b).
+  await Promise.all([
+    Conversation.updateOne(
+      { _id: conversationId },
+      { $inc: { [`unreadCount.${recipientId}`]: 1 } }
+    ),
+    Conversation.updateOne(
+      {
+        _id: conversationId,
+        $or: [{ lastMessageAt: { $exists: false } }, { lastMessageAt: { $lt: message.createdAt } }],
+      },
+      { $set: { lastMessageAt: message.createdAt, lastMessagePreview: buildPreview(text) } }
+    ),
+  ]);
+
+  return { message, created: true };
 }
 
 export async function listConversations(userId, { cursor, limit }) {

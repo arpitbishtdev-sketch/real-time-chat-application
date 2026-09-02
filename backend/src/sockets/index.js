@@ -8,6 +8,7 @@ import {
   registerConversationHandlers,
   clearSocketIntents,
 } from './conversation.handlers.js';
+import { createMessageChains, registerMessageHandlers } from './message.handlers.js';
 
 // Handshake auth middleware — runs once per connection attempt, before any
 // event handler is registered (REALTIME.md §5). Reuses the exact same
@@ -64,6 +65,7 @@ export function createSocketServer(httpServer, { clientOrigin } = {}) {
 
   const userSockets = new Map(); // userId -> Set<socketId>, foundation for M7 presence
   const intentMap = createIntentMap();
+  const messageChains = createMessageChains();
 
   // Exposed for tests and for future milestones (M7 presence reads this
   // same map rather than a second one) — not used for any broadcast yet.
@@ -71,6 +73,9 @@ export function createSocketServer(httpServer, { clientOrigin } = {}) {
   // Exposed for tests to deterministically observe the join/leave "latest
   // intent wins" race guard (REALTIME.md §7) instead of guessing timeouts.
   io.conversationIntents = intentMap;
+  // Exposed for tests to await in-flight sends before asserting DB state
+  // (BACKEND.md §13c's per-conversation ordering chain).
+  io.messageChains = messageChains;
 
   io.use(socketAuthMiddleware);
 
@@ -85,6 +90,7 @@ export function createSocketServer(httpServer, { clientOrigin } = {}) {
     socket.join(`user:${socket.userId}`);
 
     registerConversationHandlers(socket, intentMap);
+    registerMessageHandlers(socket, io, messageChains);
 
     socket.on('disconnect', (reason) => {
       if (logLifecycle) {

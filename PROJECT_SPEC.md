@@ -160,11 +160,11 @@ See CLAUDE.md §6 for the authoritative list. Summarized: bcrypt password hashin
 - [x] User profile (view/edit)
 - [x] User search
 - [x] 1-to-1 conversation creation
-- [~] Conversation list (with unread counts, last message preview) — route/pagination/authz done; real counts/previews populate once M5 writes messages
+- [~] Conversation list (with unread counts, last message preview) — route/pagination/authz done (M3); `unreadCount`/`lastMessageAt`/`lastMessagePreview` now written atomically by M5's send path; still returns an empty message page until M6 reads it
 - [ ] Persistent message history + pagination
 
 ### Real-Time
-- [~] Instant messaging (Socket.IO) — authenticated connection lifecycle done (M4); actual message send/receive is M5
+- [x] Instant messaging (Socket.IO) — authenticated connection lifecycle (M4) + live send/receive/broadcast via `message:send`/`message:new` (M5)
 - [x] Conversation rooms — join/leave, membership authorization, join/leave race guard done (M4)
 - [ ] Typing indicators
 - [ ] Online/offline presence
@@ -177,19 +177,19 @@ See CLAUDE.md §6 for the authoritative list. Summarized: bcrypt password hashin
 - [ ] Offline recipient handling
 - [ ] Missed-message synchronization
 - [ ] Network interruption recovery
-- [ ] Duplicate-message protection
-- [ ] Message acknowledgements
+- [x] Duplicate-message protection — `{conversationId, clientMessageId}` unique index + idempotent retry path (M5, REALTIME.md §13)
+- [x] Message acknowledgements — `{ok, message?, error?}` ack contract (M5, REALTIME.md §11)
 - [ ] Server restart recovery (documented degradation)
 - [ ] Multiple tabs/devices support
-- [ ] Message ordering guarantees
+- [x] Message ordering guarantees — per-conversation in-process send-ordering chain (M5, BACKEND.md §13c)
 
 ### Security
 - [x] Authentication (JWT + httpOnly cookies)
-- [~] Authorization (per-route, per-event) — per-route (REST, M3) and `conversation:join`'s per-event check (M4) done via the same `assertParticipant`; remaining events (`message:send`, typing, read receipts) are M5/M7/M8
+- [~] Authorization (per-route, per-event) — per-route (REST, M3), `conversation:join` (M4), and `message:send` (M5) done via the same `assertParticipant`; remaining events (typing, read receipts) are M7/M8
 - [x] Conversation membership validation
-- [~] Input validation (REST + sockets) — auth, user, and conversation REST endpoints (M2/M3) and `conversation:join`/`leave` socket payloads (M4) done; remaining socket events are M5/M7/M8
-- [ ] Message size limits
-- [~] Rate limiting — auth endpoints only so far (register/login/refresh); message:send limiting is M5/REALTIME.md §25
+- [~] Input validation (REST + sockets) — auth, user, and conversation REST endpoints (M2/M3), `conversation:join`/`leave` (M4), and `message:send` (M5) socket payloads done; remaining socket events are M7/M8
+- [x] Message size limits — 4000-char cap enforced by Zod (pre-persistence) and Mongoose `maxlength` (M5)
+- [~] Rate limiting — auth endpoints only so far (register/login/refresh); `message:send` limiting (TESTING.md #16) is audited/closed as part of M10's dedicated security pass, not M5 — corrected here to match PROJECT_SPEC.md §19's M5/M10 edge-case assignment, which this line had drifted from
 - [x] Secure cookie/token handling
 - [ ] XSS-safe message rendering
 
