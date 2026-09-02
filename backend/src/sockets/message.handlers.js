@@ -1,5 +1,15 @@
-import { messageSendSchema } from '../validation/socket.schema.js';
-import { sendMessage, shapeMessage } from '../services/conversation.service.js';
+import {
+  messageSendSchema,
+  messageDeliveredSchema,
+  messageReadSchema,
+} from '../validation/socket.schema.js';
+import {
+  sendMessage,
+  shapeMessage,
+  assertParticipant,
+  markMessageDelivered,
+  markConversationRead,
+} from '../services/conversation.service.js';
 import { AppError } from '../utils/AppError.js';
 import { env } from '../config/env.js';
 
@@ -84,5 +94,88 @@ export function registerMessageHandlers(socket, io, chains) {
         console.error(err);
       }
     });
+  });
+
+  socket.on('message:delivered', async (payload) => {
+    const parsed = messageDeliveredSchema.safeParse(payload);
+    if (!parsed.success) {
+      // No ack exists for this event; malformed payload is silently
+      // dropped, same as a non-participant/nonexistent message below — the
+      // event table deliberately never surfaces an error here, to avoid
+      // leaking whether a given messageId exists (REALTIME.md §11).
+      return;
+    }
+
+    const { conversationId, messageId } = parsed.data;
+
+    let result;
+    try {
+      result = await markMessageDelivered(conversationId, messageId, socket.userId);
+    } catch (err) {
+      if (!(err instanceof AppError)) {
+        console.error(err);
+      }
+      return;
+    }
+
+    if (!result) {
+      // No-op: message isn't in this conversation, or was already at
+      // `delivered`/`read` — nothing changed, nothing to broadcast.
+      return;
+    }
+
+    try {
+      io.to(`user:${result.senderId}`).emit('message:status', {
+        conversationId,
+        messageId: result.messageId,
+        status: 'delivered',
+      });
+    } catch (err) {
+      console.error(err);
+    }
+  });
+
+  socket.on('message:read', async (payload, ack) => {
+    const reply = typeof ack === 'function' ? ack : () => {};
+
+    const parsed = messageReadSchema.safeParse(payload);
+    if (!parsed.success) {
+      return reply({
+        ok: false,
+        error: { code: 'VALIDATION_ERROR', message: 'A valid read payload is required.' },
+      });
+    }
+
+    const { conversationId, upToMessageId } = parsed.data;
+
+    try {
+      await assertParticipant(conversationId, socket.userId);
+    } catch (err) {
+      return reply(toAckError(err));
+    }
+
+    let result;
+    try {
+      result = await markConversationRead(conversationId, socket.userId, upToMessageId);
+    } catch (err) {
+      return reply(toAckError(err));
+    }
+
+    // Ack reflects persistence success only, sent before the broadcast
+    // attempt below — same ack/broadcast isolation as message:send
+    // (BACKEND.md §13d, REALTIME.md §12a).
+    reply({ ok: true });
+
+    if (result.modifiedCount > 0) {
+      try {
+        io.to(`user:${result.otherParticipantId}`).emit('message:status', {
+          conversationId,
+          upToMessageId,
+          status: 'read',
+        });
+      } catch (err) {
+        console.error(err);
+      }
+    }
   });
 }

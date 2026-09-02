@@ -2,7 +2,12 @@ import { describe, it, expect } from 'vitest';
 import mongoose from 'mongoose';
 import { randomUUID } from 'node:crypto';
 
-import { conversationRoomSchema, messageSendSchema } from '../../src/validation/socket.schema.js';
+import {
+  conversationRoomSchema,
+  messageSendSchema,
+  messageDeliveredSchema,
+  messageReadSchema,
+} from '../../src/validation/socket.schema.js';
 
 const validId = new mongoose.Types.ObjectId().toString();
 
@@ -137,5 +142,67 @@ describe('messageSendSchema', () => {
     });
     expect(result.success).toBe(true);
     expect(result.data).toEqual({ conversationId: validId, clientMessageId, text: 'hi' });
+  });
+});
+
+describe('messageDeliveredSchema', () => {
+  const validMessageId = new mongoose.Types.ObjectId().toString();
+
+  it('accepts a valid payload', () => {
+    const result = messageDeliveredSchema.safeParse({
+      conversationId: validId,
+      messageId: validMessageId,
+    });
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual({ conversationId: validId, messageId: validMessageId });
+  });
+
+  it('rejects a missing messageId', () => {
+    expect(messageDeliveredSchema.safeParse({ conversationId: validId }).success).toBe(false);
+  });
+
+  it('rejects a malformed messageId', () => {
+    const result = messageDeliveredSchema.safeParse({
+      conversationId: validId,
+      messageId: 'not-an-id',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a malformed conversationId', () => {
+    const result = messageDeliveredSchema.safeParse({
+      conversationId: 'not-an-id',
+      messageId: validMessageId,
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('messageReadSchema', () => {
+  const validUpToMessageId = new mongoose.Types.ObjectId().toString();
+
+  it('accepts a valid payload', () => {
+    const result = messageReadSchema.safeParse({
+      conversationId: validId,
+      upToMessageId: validUpToMessageId,
+    });
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual({ conversationId: validId, upToMessageId: validUpToMessageId });
+  });
+
+  it('rejects a missing upToMessageId', () => {
+    expect(messageReadSchema.safeParse({ conversationId: validId }).success).toBe(false);
+  });
+
+  it('rejects a malformed upToMessageId', () => {
+    const result = messageReadSchema.safeParse({
+      conversationId: validId,
+      upToMessageId: 'not-an-id',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a missing conversationId', () => {
+    expect(messageReadSchema.safeParse({ upToMessageId: validUpToMessageId }).success).toBe(false);
   });
 });

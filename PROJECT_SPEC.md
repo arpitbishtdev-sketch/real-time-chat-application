@@ -169,8 +169,8 @@ See CLAUDE.md §6 for the authoritative list. Summarized: bcrypt password hashin
 - [x] Typing indicators — `typing:start`/`typing:stop`/`typing:update`, server-side TTL backstop (M7, REALTIME.md §15)
 - [x] Online/offline presence — per-user (not per-socket) collapse across tabs/devices, contact-scoped broadcasts (M7, REALTIME.md §8/§16)
 - [x] Last seen — `User.lastSeenAt` set on last-socket disconnect, cleared on first-socket reconnect (M7)
-- [ ] Message delivery state (sent/delivered/read)
-- [ ] Read receipts
+- [x] Message delivery state (sent/delivered/read) — monotonic conditional-atomic transitions, never regress (M8, BACKEND.md §14, REALTIME.md §17a)
+- [x] Read receipts — bulk "read up to X" watermark, `message:status` notifies the sender (M8, REALTIME.md §17)
 - [ ] Reconnection handling
 
 ### Reliability
@@ -180,14 +180,14 @@ See CLAUDE.md §6 for the authoritative list. Summarized: bcrypt password hashin
 - [x] Duplicate-message protection — `{conversationId, clientMessageId}` unique index + idempotent retry path (M5, REALTIME.md §13)
 - [x] Message acknowledgements — `{ok, message?, error?}` ack contract (M5, REALTIME.md §11)
 - [ ] Server restart recovery (documented degradation)
-- [~] Multiple tabs/devices support — presence correctly collapses per-user across sockets, and `typing:update` correctly excludes every one of the typer's own sockets (M7); the M5 message-broadcast/`user:<id>`-room foundation this builds on was already multi-tab-correct — full guarantee (including frontend rendering and read/unread state) still depends on M8/M14/M15
+- [~] Multiple tabs/devices support — presence correctly collapses per-user across sockets, and `typing:update` correctly excludes every one of the typer's own sockets (M7); `message:status` reaches every one of the sender's tabs/devices, and two tabs of the same reader calling `message:read` concurrently converge to the higher watermark with no lost/negative unread count (M8); full guarantee (including frontend rendering) still depends on M14/M15
 - [x] Message ordering guarantees — per-conversation in-process send-ordering chain (M5, BACKEND.md §13c); read-side tuple-cursor ordering, correct under same-millisecond ties (M6, BACKEND.md §12, TESTING.md #32)
 
 ### Security
 - [x] Authentication (JWT + httpOnly cookies)
-- [~] Authorization (per-route, per-event) — per-route (REST, M3), `conversation:join` (M4), `message:send` (M5), and `typing:start`/`typing:stop` (M7) done via the same `assertParticipant`; remaining events (read receipts) are M8
+- [x] Authorization (per-route, per-event) — per-route (REST, M3), `conversation:join` (M4), `message:send` (M5), `typing:start`/`typing:stop` (M7), and `message:delivered`/`message:read` (M8) all done via the same `assertParticipant`; every socket event in REALTIME.md's event table as of M8 is covered
 - [x] Conversation membership validation
-- [~] Input validation (REST + sockets) — auth, user, and conversation REST endpoints (M2/M3), `conversation:join`/`leave` (M4), `message:send` (M5), and `typing:start`/`typing:stop` (M7) socket payloads done; remaining socket events are M8
+- [x] Input validation (REST + sockets) — every REST endpoint and every socket event in REALTIME.md's event table as of M8 has server-side Zod validation before touching the DB
 - [x] Message size limits — 4000-char cap enforced by Zod (pre-persistence) and Mongoose `maxlength` (M5)
 - [~] Rate limiting — auth endpoints only so far (register/login/refresh); `message:send` limiting (TESTING.md #16) is audited/closed as part of M10's dedicated security pass, not M5 — corrected here to match PROJECT_SPEC.md §19's M5/M10 edge-case assignment, which this line had drifted from
 - [x] Secure cookie/token handling

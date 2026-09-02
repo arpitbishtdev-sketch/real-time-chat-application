@@ -26,5 +26,24 @@ export const getMessages = asyncHandler(async (req, res) => {
 export const markRead = asyncHandler(async (req, res) => {
   await assertParticipant(req.params.id, req.userId);
   const result = await markConversationRead(req.params.id, req.userId, req.body.upToMessageId);
-  res.status(200).json(result);
+  res.status(200).json({ unreadCount: result.unreadCount });
+
+  // Same real-time notification the socket `message:read` path fires
+  // (REALTIME.md §11) — this REST fallback exists specifically for the
+  // pre-socket-connect page-load case, so the sender's UI must not go
+  // stale just because the reader used it instead of the socket event.
+  // Isolated from the response above exactly like message:send's
+  // ack/broadcast split (BACKEND.md §13d) — a failed broadcast here can
+  // never turn an already-sent 200 into an error.
+  if (result.modifiedCount > 0) {
+    try {
+      req.app.get('io').to(`user:${result.otherParticipantId}`).emit('message:status', {
+        conversationId: req.params.id,
+        upToMessageId: req.body.upToMessageId,
+        status: 'read',
+      });
+    } catch (err) {
+      console.error(err);
+    }
+  }
 });

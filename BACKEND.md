@@ -289,6 +289,16 @@ These are two separate calls (not one combined update) because they have differe
 
 `message:send`'s ack reflects **persistence** success or failure only. Once `Message.create()` (and §13b's metadata updates) succeed, the ack is sent (`{ok:true, message}`) *before* attempting the `io.to(`conversation:<id>`).emit('message:new', ...)` broadcast. The broadcast is wrapped in its own `try/catch` that logs on failure but never re-throws into the ack path and never causes the sender to see a failure — the message is already safely durable at that point, and a missed live broadcast is recovered by the existing reconnection/history-sync path (REALTIME.md §19) for any client that didn't receive it live. See REALTIME.md §11/§12 for the updated event-table wording and TESTING.md #29 for the test.
 
+### 13e. Unread-Count Clearing Is a Delta Decrement, Not an Absolute `$set: 0` (resolved 2026-09-02, M8)
+
+**DECISION:** `message:read`'s unread-count clear is `Conversation.updateOne({_id}, {$inc: {[\`unreadCount.${readerId}\`]: -N}})`, where `N` is the `modifiedCount` from the exact same call's `Message.updateMany` (§14) — **never** an unconditional `$set: {[\`unreadCount.${readerId}\`]: 0}`, and the decrement is skipped entirely when `N` is 0.
+**WHY:** two failure modes an absolute `$set: 0` has, both real under this app's own documented concurrency scenarios:
+1. **Lost-update race with a concurrent send:** M5's `message:send` applies its unread increment via `$inc` (§13b) — genuinely commutative with any other atomic operator on the same field, in either order. An absolute `$set: 0` is not commutative with that `$inc`: if a brand-new message's `$inc` completes *between* the read handler starting and its `$set: 0` executing, the `$set` overwrites the fresh increment, and the new message is incorrectly reported as already read. A delta `$inc` by exactly `-N` commutes with the send-side `$inc` regardless of interleaving — the two operations simply add algebraically to the correct total either order.
+2. **Wrong even without a race, for a partial read:** `upToMessageId` doesn't have to be the newest message in the conversation — a client can mark read only what it has actually scrolled past. `$set: 0` would incorrectly zero out newer, still-genuinely-unread messages beyond the cursor. `$inc` by `-N` only ever removes exactly the count of messages this specific call actually flipped to `read` (guarded by `status: {$ne: 'read'}` in the same `updateMany`), leaving anything beyond the cursor untouched.
+**ALTERNATIVES CONSIDERED:** re-deriving the count via a fresh `Message.countDocuments({conversationId, senderId: otherId, status: {$ne: 'read'}})` after the bulk update and `$set`-ing that — rejected because a query-then-set is exactly the `findById()` → mutate → `.save()` shape CLAUDE.md §11 already prohibits for concurrency-sensitive counters (a new message could still land between the count and the set).
+**TRADEOFF:** none identified — the delta form is strictly more correct than the absolute form for both failure modes above, at identical cost (still one atomic `updateOne` call, skipped instead of run when `N` is 0).
+**INTERVIEW EXPLANATION:** "Clearing unread count on read looks like it should just be 'set it to 0,' but that's only true if the read always covers every unread message and nothing else touches the field concurrently — neither is guaranteed here. Subtracting exactly the count of messages this call actually marked read makes it commute correctly with the send-side increment and stay correct for a partial read, using the same atomic-delta idea as the increment side instead of a different, less safe idea for the decrement side."
+
 ## 14. Data Models
 
 ### `User`
@@ -354,7 +364,7 @@ These are two separate calls (not one combined update) because they have differe
 **Constraints:** `text` max length enforced both by Zod (pre-persistence, returns a clean 400/ack error) and by the Mongoose schema (`maxlength`, defense in depth).
 **Pagination:** always queried with `.limit(n)` and a cursor filter; never `Message.find({conversationId})` unbounded.
 **Soft deletion / editing:** out of MVP (messages are immutable once sent); a future `deletedAt`/`editedAt` pair is the natural extension and would need to be reflected in the real-time event contract (an explicit `message:deleted`/`message:edited` event) rather than silently mutating history.
-**Status transitions are monotonic (resolved 2026-08-31):** valid transitions are `sent → delivered → read` only; `read` is terminal. Each transition is a **conditional atomic update**, guarding against a late/in-flight event regressing a message backward:
+**Status transitions are monotonic (resolved 2026-08-31, implemented M8):** valid transitions are `sent → delivered → read` only; `read` is terminal. Each transition is a **conditional atomic update**, guarding against a late/in-flight event regressing a message backward:
 ```js
 // message:delivered handler — only advances from 'sent'
 Message.updateOne({ _id, status: 'sent' }, { $set: { status: 'delivered', deliveredAt } })
@@ -451,9 +461,9 @@ All routes prefixed `/api`. "Auth" = requires valid `accessToken`. "Authz" = add
 **POST `/conversations/:id/read`**
 - Auth: yes. Authz: requester must be a participant.
 - Body: `{upToMessageId}` (marks all messages up to and including this one as read; mirrors/complements the real-time `message:read` socket event for the case where the client needs a REST fallback, e.g. reconciling on page load before the socket connects).
-- Response: `200 {unreadCount: 0}`.
-- Errors: `400 VALIDATION_ERROR` (malformed conversation id or `upToMessageId`), `403 FORBIDDEN`, `404 CONVERSATION_NOT_FOUND`.
-- **M3 status:** route, auth, authz, and body-shape validation are fully wired; `upToMessageId` is checked for well-formedness only — it isn't looked up, since real read-state mutation lands in M8.
+- Response: `200 {unreadCount}` — the requester's *actual* remaining unread count after the update (not hardcoded to 0; a partial read, where `upToMessageId` isn't the newest message, correctly leaves a nonzero remainder — see §13e).
+- Errors: `400 VALIDATION_ERROR` (malformed conversation id, or `upToMessageId` well-formed but not an actual message in this conversation), `403 FORBIDDEN`, `404 CONVERSATION_NOT_FOUND`.
+- **Implemented M8.** Same semantics and shared service logic (`markConversationRead`) as the socket `message:read` event — see REALTIME.md §17. Also broadcasts `message:status` to the sender's `user:<id>` room on an actual (non-no-op) read, isolated from the response exactly like `message:send`'s ack/broadcast split (§13d) — a failed broadcast here can never turn an already-sent `200` into an error.
 
 Message *sending* is intentionally **not** a REST endpoint — see §13.
 

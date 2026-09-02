@@ -271,8 +271,88 @@ export async function getConversationMessages(conversationId, { cursor, limit })
   return { messages: page.map(shapeMessage), nextCursor };
 }
 
-// Route/authz/shape wired now; real read-state mutation lands in M8 once
-// Message.status exists (PROJECT_SPEC.md M3 task 8).
-export async function markConversationRead() {
-  return { unreadCount: 0 };
+// `message:delivered` (REALTIME.md §11) — recipient confirms receipt of one
+// specific message. Membership is re-checked here (no REST equivalent
+// calls this, unlike markConversationRead below). Returns null for every
+// no-op case (message not in this conversation, or already at `delivered`
+// or `read`) so the caller knows not to broadcast — matching the event
+// table's "silently ignored" framing for both the authz and the
+// already-read cases (BACKEND.md §14, TESTING.md #30).
+export async function markMessageDelivered(conversationId, messageId, userId) {
+  await assertParticipant(conversationId, userId);
+
+  const message = await Message.findOne({ _id: messageId, conversationId });
+  if (!message) {
+    return null;
+  }
+
+  const deliveredAt = new Date();
+  // Conditional atomic update — only advances a message still at `sent`,
+  // so a delivered event arriving after the message was already read (or
+  // already delivered, e.g. a duplicate confirmation from a second tab)
+  // matches zero documents and is a safe no-op, never a regression.
+  const result = await Message.updateOne(
+    { _id: messageId, status: 'sent' },
+    { $set: { status: 'delivered', deliveredAt } }
+  );
+
+  if (result.modifiedCount === 0) {
+    return null;
+  }
+
+  return { messageId: String(message._id), senderId: String(message.senderId), deliveredAt };
+}
+
+// `message:read` / `POST /conversations/:id/read` (REALTIME.md §11/§17,
+// BACKEND.md §15) — bulk "read up to X" watermark, naturally idempotent
+// and commutative regardless of call order or overlapping ranges (TESTING.md
+// #21). Caller has already re-verified membership (mirrors
+// getConversationMessages's contract above) — this only mutates state.
+//
+// Unread-count clearing is a **delta decrement by exactly the number of
+// messages this call actually flipped to `read`**, never an absolute
+// `$set` to 0: an unconditional 0 would (a) race with M5's concurrent
+// atomic `$inc` for a brand-new message arriving mid-read, clobbering a
+// legitimately-unread message back to "read", and (b) be wrong outright
+// for a *partial* read (an `upToMessageId` that isn't the newest message
+// leaves newer messages still unread) — see BACKEND.md §13b/§14.
+export async function markConversationRead(conversationId, userId, upToMessageId) {
+  const cursorMessage = await Message.findOne({ _id: upToMessageId, conversationId });
+  if (!cursorMessage) {
+    throw new AppError(
+      400,
+      'VALIDATION_ERROR',
+      'upToMessageId is not a message in this conversation.'
+    );
+  }
+
+  const readAt = new Date();
+  const result = await Message.updateMany(
+    {
+      conversationId,
+      senderId: { $ne: userId },
+      createdAt: { $lte: cursorMessage.createdAt },
+      status: { $ne: 'read' },
+    },
+    { $set: { status: 'read', readAt } }
+  );
+
+  const conversation =
+    result.modifiedCount > 0
+      ? await Conversation.findOneAndUpdate(
+          { _id: conversationId },
+          { $inc: { [`unreadCount.${userId}`]: -result.modifiedCount } },
+          { returnDocument: 'after' }
+        )
+      : await Conversation.findById(conversationId);
+
+  const otherParticipantId = conversation.participants
+    .map((p) => String(p))
+    .find((id) => id !== String(userId));
+
+  return {
+    unreadCount: getUnreadCountFor(conversation, userId),
+    modifiedCount: result.modifiedCount,
+    otherParticipantId,
+  };
 }

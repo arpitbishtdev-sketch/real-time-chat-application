@@ -91,11 +91,16 @@ Every payload is validated server-side with a Zod schema (BACKEND.md §4) before
   }
 }
 
+// client -> server: message:delivered
+{ conversationId: string, messageId: string }
+
 // client -> server: message:read
 { conversationId: string, upToMessageId: string }
 
-// server -> client: message:status
-{ conversationId: string, messageId: string, status: "delivered" | "read" }
+// server -> client: message:status — one of two shapes depending on origin
+// (resolved 2026-09-02, M8 — see §17b):
+{ conversationId: string, messageId: string, status: "delivered" }       // from message:delivered
+{ conversationId: string, upToMessageId: string, status: "read" }        // from message:read (bulk)
 
 // client -> server: typing:start / typing:stop
 { conversationId: string }
@@ -115,9 +120,9 @@ Every payload is validated server-side with a Zod schema (BACKEND.md §4) before
 | `conversation:leave` | C→S | Leave a room (e.g. navigated away) | required | `{conversationId}` | no | **Implemented M4.** No-op if not currently joined. Malformed payload (no ack exists to carry a failure) → a scoped `error` event `{code:"VALIDATION_ERROR", message}` instead, per ARCHITECTURE.md §15's socket error-flow convention. |
 | `message:send` | C→S | Persist + broadcast a new message | required; DB membership re-checked | see §10 | **yes** — `{ok, message?, error?}` | **Implemented M5.** Validation fail → ack `{ok:false, error}`. Not participant → `{ok:false, FORBIDDEN}`. Persistence fails → `{ok:false, code:"PERSIST_FAILED"}`, client may retry with same `clientMessageId` (safe, see §13). **Persistence succeeds → ack always `{ok:true, message}`, even if the subsequent broadcast step fails** — see §12a. A duplicate-`clientMessageId` retry acks `{ok:true, message}` for the original message and does not re-broadcast `message:new` (§13's "does nothing else"). |
 | `message:new` | S→C | Deliver a newly sent message to the other participant(s) | scoped to room `conversation:<id>` (membership already enforced at join-time) | see §10 | no (fire-and-forget notification; delivery confirmed separately via `message:delivered`) | **Implemented M5.** If recipient offline, or if the broadcast attempt itself throws (§12a), not received live — recovered via reconnection sync (§19) or REST history fetch either way. |
-| `message:delivered` | C→S | Recipient's client confirms receipt of a specific message | required; must be a participant of the message's conversation | `{conversationId, messageId}` | no | Silently ignored if message doesn't belong to a conversation the socket is a participant of (logged server-side as a suspicious no-op, not surfaced as an error to avoid leaking existence). **Also a no-op (by design, not by accident) if the message's status is already `read`** — the update is conditioned on `status: 'sent'`, so a delivered event arriving after the message was already read can never regress it backward. See §17a. |
-| `message:read` | C→S | Recipient marks messages read up to a point | required; participant check | `{conversationId, upToMessageId}` | yes — `{ok}` | Invalid `upToMessageId` (not found / not in this conversation) → `{ok:false, error}`. |
-| `message:status` | S→C | Notify sender their message's delivery/read state changed | scoped to `user:<senderId>` room | see §10 | no | N/A (pure notification; sender's REST fetch would also reflect the true state, so a missed event self-heals on next load). |
+| `message:delivered` | C→S | Recipient's client confirms receipt of a specific message | required; must be a participant of the message's conversation | `{conversationId, messageId}` | no | **Implemented M8.** Silently ignored if message doesn't belong to a conversation the socket is a participant of, or is malformed (logged server-side as a suspicious no-op, not surfaced as an error to avoid leaking existence). **Also a no-op (by design, not by accident) if the message's status is already `delivered` or `read`** — the update is conditioned on `status: 'sent'`, so a delivered event arriving after the message was already read (or a redundant duplicate confirmation) can never regress or re-broadcast. See §17a. |
+| `message:read` | C→S | Recipient marks messages read up to a point | required; participant check | `{conversationId, upToMessageId}` | yes — `{ok}` | **Implemented M8.** Invalid `upToMessageId` (not found / not in this conversation) → `{ok:false, error:{code:"VALIDATION_ERROR"}}`. Not a participant → `{ok:false, error:{code:"FORBIDDEN"}}`. A watermark that covers zero newly-unread messages (e.g. a repeat of an already-applied read) is a safe no-op — still acks `{ok:true}`, but touches no `Message` document and doesn't re-broadcast `message:status`. |
+| `message:status` | S→C | Notify sender their message's delivery/read state changed | scoped to `user:<senderId>` room | see §10 | no | **Implemented M8.** Reaches every one of the sender's sockets (all tabs/devices — `user:<id>` room, §7). N/A beyond that (pure notification; sender's REST fetch would also reflect the true state, so a missed event self-heals on next load). |
 | `typing:start` | C→S | Announce the user started typing | required; participant check | `{conversationId}` | no | **Implemented M7.** Silently dropped if not a participant (no error surfaced — non-critical, non-destructive event). Malformed payload is also silently dropped (same non-critical framing — no `error` event, unlike `conversation:leave`). |
 | `typing:stop` | C→S | Announce the user stopped typing | required; participant check | `{conversationId}` | no | **Implemented M7.** Same as above. |
 | `typing:update` | S→C | Notify the other participant of typing state | scoped to `conversation:<id>` room, excluding the sender's own sockets | see §10 | no | **Implemented M7.** Exclusion covers *every* socket belonging to the typer (all tabs/devices, via the `user:<id>` room every socket already joins on connect — `.except('user:<id>')`), not just the single emitting socket. Also auto-expires server-side (§15) so a missed `typing:stop` — including one lost to a disconnect — can't wedge the indicator on forever. |
@@ -164,11 +169,19 @@ The ack step and the broadcast step are deliberately decoupled failure domains. 
 
 ## 17. Read Receipts — Detail
 
-`message:read` is sent with `upToMessageId` (not one event per message) so a user opening a conversation with 20 unread messages generates one event, not 20 — the server marks every message in that conversation with `createdAt <= that message's createdAt` (sent by the *other* participant) as read in a single bulk update.
+**Implemented M8.** `message:read` is sent with `upToMessageId` (not one event per message) so a user opening a conversation with 20 unread messages generates one event, not 20 — the server marks every message in that conversation with `createdAt <= that message's createdAt` (sent by the *other* participant, i.e. only messages the reader received, never their own) as read in a single bulk update (`Message.updateMany`, BACKEND.md §14).
 
-### 17a. Status Transitions Are Monotonic (resolved 2026-08-31)
+### 17a. Status Transitions Are Monotonic (resolved 2026-08-31, implemented M8)
 
 `sent → delivered → read` only; `read` never regresses. This matters because `message:delivered` and `message:read` can arrive out of their "natural" order — e.g. a recipient reads a message (fast) before their client's `message:delivered` event (sent slightly earlier but delayed in flight) reaches the server. Both handlers use a **conditional atomic update** rather than an unconditional `$set`, so an event that's arrived "too late" is a safe no-op instead of a regression: `message:delivered` only matches (and only advances) a message currently in `status: 'sent'`; a message already at `read` simply doesn't match that filter and is left untouched. Exact update shapes in BACKEND.md §14 (Message model). See TESTING.md #30.
+
+### 17b. `message:status` Has Two Payload Shapes, Not One (resolved 2026-09-02)
+
+**DECISION:** `message:status` carries `{conversationId, messageId, status:"delivered"}` when it originates from `message:delivered` (inherently a single-message event), but `{conversationId, upToMessageId, status:"read"}` — the same watermark shape as the `message:read` request that triggered it — when it originates from a bulk read, rather than one `message:status` event per message covered by the read.
+**WHY:** §17's whole point is that reading 20 messages must not generate 20 client→server events; broadcasting 20 server→client `message:status` events right back out for the exact same bulk action would silently reintroduce the same N-events problem on the other side. The reader's client already knows which messages it just marked read (it sent the watermark); the *sender's* client can apply the identical "everything up to X" rule to its own locally-cached sent messages.
+**ALTERNATIVES CONSIDERED:** (a) one `message:status{messageId}` event per updated message — simplest mentally, matches the single-message `delivered` case, but reintroduces the N-events problem; (b) `{conversationId, messageIds:[...], status:"read"}` carrying every affected id — avoids the client re-deriving the watermark rule, at the cost of an unbounded-size payload for a very large bulk read.
+**TRADEOFF:** The sender's client must apply the same `createdAt <= cursor message's createdAt` rule client-side to reconcile `upToMessageId` against its own message list, instead of just matching on `_id` — a small amount of shared logic between server and client, in exchange for the event staying O(1) in size regardless of how many messages a single read call covers.
+**INTERVIEW EXPLANATION:** "The read *request* is already a watermark to avoid one event per message; I kept that same shape on the way back out, otherwise the server-to-client side would have silently reintroduced exactly the problem the request side was designed to avoid."
 
 ## 18. Reconnection
 

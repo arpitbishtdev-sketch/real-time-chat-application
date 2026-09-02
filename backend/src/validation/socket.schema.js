@@ -22,3 +22,17 @@ export const messageSendSchema = z.object({
   clientMessageId: z.string().uuid(),
   text: z.string().trim().min(1).max(4000),
 });
+
+// message:delivered payload (REALTIME.md §11) — recipient confirms receipt
+// of one specific message.
+export const messageDeliveredSchema = z.object({
+  conversationId: objectId,
+  messageId: objectId,
+});
+
+// message:read payload (REALTIME.md §10/§17) — bulk "read up to X"
+// watermark, not one event per message.
+export const messageReadSchema = z.object({
+  conversationId: objectId,
+  upToMessageId: objectId,
+});

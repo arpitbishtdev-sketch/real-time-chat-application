@@ -221,7 +221,7 @@ Living index — update statuses (`[ ]` / `[~]` / `[x]`) as milestones complete.
 | [x] M5 | Basic Real-Time Messaging | M3, M4 |
 | [x] M6 | Persistent Message History & Pagination | M5 |
 | [x] M7 | Presence & Typing Indicators | M4 |
-| [ ] M8 | Read Receipts, Delivery State & Unread Counts | M5, M6 |
+| [x] M8 | Read Receipts, Delivery State & Unread Counts | M5, M6 |
 | [ ] M9 | Reconnection, Offline Sync & Idempotency | M5, M6, M8 |
 | [ ] M10 | Backend Security Hardening, Validation & Rate Limiting | M2–M9 |
 | [ ] M11 | Frontend Foundation | M0, M3 |
