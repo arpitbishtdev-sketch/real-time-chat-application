@@ -11,6 +11,7 @@ import {
 import { createMessageChains, registerMessageHandlers } from './message.handlers.js';
 import { createPresenceMap, handleSocketConnected, handleSocketDisconnected } from './presence.js';
 import { createTypingState, registerTypingHandlers } from './typing.handlers.js';
+import { createMessageRateLimiter } from './rateLimit.js';
 
 // Handshake auth middleware — runs once per connection attempt, before any
 // event handler is registered (REALTIME.md §5). Reuses the exact same
@@ -45,15 +46,16 @@ function socketAuthMiddleware(socket, next) {
 // maps rather than module-level singletons, so multiple instances (e.g.
 // one per test) never leak state into each other.
 //
-// `pingInterval`/`pingTimeout` and `typingTtlMs` are optional overrides —
-// omitted in production (server.js), so Socket.IO's own heartbeat defaults
+// `pingInterval`/`pingTimeout`, `typingTtlMs`, and `messageRateLimit` are
+// optional overrides — omitted in production (server.js), so Socket.IO's
+// own heartbeat defaults and REALTIME.md §25's documented capacity/refill
 // apply there (REALTIME.md §8's "stale presence" detection relies on
-// exactly that built-in mechanism, task 8). Tests pass short values so the
-// abrupt-disconnect and typing-TTL cases don't have to wait out the real
-// production windows.
+// exactly that built-in mechanism, task 8). Tests pass short/small values
+// so the abrupt-disconnect, typing-TTL, and rate-limit cases don't have to
+// wait out the real production windows.
 export function createSocketServer(
   httpServer,
-  { clientOrigin, pingInterval, pingTimeout, typingTtlMs } = {}
+  { clientOrigin, pingInterval, pingTimeout, typingTtlMs, messageRateLimit } = {}
 ) {
   const io = new Server(httpServer, {
     cors: { origin: clientOrigin, credentials: true },
@@ -65,6 +67,7 @@ export function createSocketServer(
   const intentMap = createIntentMap();
   const messageChains = createMessageChains();
   const typingState = createTypingState();
+  const messageRateLimiter = createMessageRateLimiter(messageRateLimit);
 
   // Same map M4 introduced — kept as `io.userSockets` for compatibility
   // with M4's existing tests/behavior; M7 only adds the presence-handling
@@ -79,6 +82,9 @@ export function createSocketServer(
   // Exposed for tests to inspect/await typing TTL timers directly instead
   // of guessing waits.
   io.typingTimers = typingState;
+  // Exposed for tests to inspect/reset bucket state directly instead of
+  // waiting out the real refill window (REALTIME.md §25).
+  io.messageRateLimiter = messageRateLimiter;
 
   io.use(socketAuthMiddleware);
 
@@ -95,7 +101,7 @@ export function createSocketServer(
     socket.join(`user:${socket.userId}`);
 
     registerConversationHandlers(socket, intentMap);
-    registerMessageHandlers(socket, io, messageChains);
+    registerMessageHandlers(socket, io, messageChains, messageRateLimiter);
     registerTypingHandlers(socket, io, typingState, typingTtlMs);
 
     socket.on('disconnect', (reason) => {

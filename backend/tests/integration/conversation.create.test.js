@@ -126,6 +126,27 @@ describe('POST /api/conversations', () => {
     expect(res.body.error.code).toBe('VALIDATION_ERROR');
   });
 
+  // PROJECT_SPEC.md M10 task 2/TESTING.md #10 — the acting participant is
+  // always the authenticated req.userId, never a client-supplied identity
+  // field, even if one is smuggled into the body alongside the documented
+  // shape.
+  it('ignores a spoofed identity field in the body — the initiating participant is always the authenticated user', async () => {
+    const a = await registerUser(app, { displayName: 'Ada' });
+    const b = await registerUser(app, { displayName: 'Bob' });
+    const eve = await registerUser(app, { displayName: 'Eve' });
+
+    const res = await request(app)
+      .post('/api/conversations')
+      .set('Cookie', [a.authCookie])
+      .send({ participantId: b.user._id, userId: eve.user._id, initiatorId: eve.user._id });
+
+    expect(res.status).toBe(201);
+    const conversation = await Conversation.findById(res.body.conversation._id);
+    const participantIds = conversation.participants.map(String).sort();
+    expect(participantIds).toEqual([a.user._id, b.user._id].sort());
+    expect(participantIds).not.toContain(eve.user._id);
+  });
+
   it('rejects an unauthenticated request with 401', async () => {
     const b = await registerUser(app);
     const res = await request(app).post('/api/conversations').send({ participantId: b.user._id });

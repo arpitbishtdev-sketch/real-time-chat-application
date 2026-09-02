@@ -48,9 +48,23 @@ function chain(chains, conversationId, task) {
   return next;
 }
 
-export function registerMessageHandlers(socket, io, chains) {
+export function registerMessageHandlers(socket, io, chains, messageRateLimiter) {
   socket.on('message:send', (payload, ack) => {
     const reply = typeof ack === 'function' ? ack : () => {};
+
+    // Rate-limited per authenticated userId, before validation — bounds the
+    // total rate of message:send *attempts* a user can make regardless of
+    // payload validity (a flood of malformed payloads is exactly as much
+    // of an abuse surface as a flood of valid ones), and per-user rather
+    // than per-socket so multi-tab/device spam from the same user is also
+    // bounded (REALTIME.md §25, PROJECT_SPEC.md M10 task 4). The socket is
+    // never disconnected for this — only this one event is rejected.
+    if (!messageRateLimiter.tryConsume(socket.userId)) {
+      return reply({
+        ok: false,
+        error: { code: 'RATE_LIMITED', message: 'Too many messages. Please slow down.' },
+      });
+    }
 
     const parsed = messageSendSchema.safeParse(payload);
     if (!parsed.success) {

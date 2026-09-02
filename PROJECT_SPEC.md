@@ -185,11 +185,11 @@ See CLAUDE.md §6 for the authoritative list. Summarized: bcrypt password hashin
 
 ### Security
 - [x] Authentication (JWT + httpOnly cookies)
-- [x] Authorization (per-route, per-event) — per-route (REST, M3), `conversation:join` (M4), `message:send` (M5), `typing:start`/`typing:stop` (M7), and `message:delivered`/`message:read` (M8) all done via the same `assertParticipant`; every socket event in REALTIME.md's event table as of M8 is covered
+- [x] Authorization (per-route, per-event) — per-route (REST, M3), `conversation:join` (M4), `message:send` (M5), `typing:start`/`typing:stop` (M7), and `message:delivered`/`message:read` (M8) all done via the same `assertParticipant`; every socket event in REALTIME.md's event table is covered; M10 re-audited the full set and found no gap — see BACKEND.md/REALTIME.md for the as-built contracts, no code changes were needed
 - [x] Conversation membership validation
-- [x] Input validation (REST + sockets) — every REST endpoint and every socket event in REALTIME.md's event table as of M8 has server-side Zod validation before touching the DB
-- [x] Message size limits — 4000-char cap enforced by Zod (pre-persistence) and Mongoose `maxlength` (M5)
-- [~] Rate limiting — auth endpoints only so far (register/login/refresh); `message:send` limiting (TESTING.md #16) is audited/closed as part of M10's dedicated security pass, not M5 — corrected here to match PROJECT_SPEC.md §19's M5/M10 edge-case assignment, which this line had drifted from
+- [x] Input validation (REST + sockets) — every REST endpoint and every socket event in REALTIME.md's event table has server-side Zod validation before touching the DB; M10 re-audited and additionally verified no route/event ever reads a client-supplied identity field (`userId`/`senderId`/etc.) instead of the authenticated session, with dedicated tests added for `POST /conversations` and `message:read` where none existed yet
+- [x] Message size limits — 4000-char cap enforced by Zod (pre-persistence, M5) and independently verified at the Mongoose `maxlength` layer directly, bypassing Zod (M10, TESTING.md #15, defense in depth)
+- [x] Rate limiting — auth endpoints (register/login/refresh, M2) and `message:send` (M10, REALTIME.md §25: token bucket, capacity 20/refill 2 per sec, per authenticated `userId`) — both verified to actually trigger under test, not just documented
 - [x] Secure cookie/token handling
 - [ ] XSS-safe message rendering
 

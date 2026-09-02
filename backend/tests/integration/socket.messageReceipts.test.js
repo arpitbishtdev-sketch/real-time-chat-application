@@ -291,6 +291,40 @@ describe('message:read', () => {
     recipientSocket.close();
   });
 
+  // PROJECT_SPEC.md M10 task 2/TESTING.md #10 — the reader is always
+  // socket.userId, never a client-supplied field, even one smuggled into
+  // the payload alongside the documented shape (the schema doesn't define
+  // a userId field at all, so this also proves it's simply never read,
+  // not merely validated away).
+  it('ignores a spoofed userId in the payload — the reader is always the authenticated socket, never able to clear another user’s unread count', async () => {
+    const a = await registerUser(app, { displayName: 'Ada' });
+    const b = await registerUser(app, { displayName: 'Bob' });
+    const eve = await registerUser(app, { displayName: 'Eve' });
+    const conversationId = await createConversation(a, b);
+
+    const msg1 = await seedMessage(conversationId, a.user._id, 'one');
+
+    const recipientSocket = connectSocket(server.url, b.authCookie);
+    await waitForConnectOrError(recipientSocket);
+
+    const ack = await emitAck(recipientSocket, 'message:read', {
+      conversationId,
+      upToMessageId: String(msg1._id),
+      userId: eve.user._id,
+    });
+    expect(ack).toEqual({ ok: true });
+
+    const stored1 = await Message.findById(msg1._id);
+    expect(stored1.status).toBe('read');
+
+    const conversation = await Conversation.findById(conversationId);
+    // b's own unread count cleared — nothing about eve's identity, which
+    // was never a participant and never actually read, was ever consulted.
+    expect(conversation.unreadCount.get(b.user._id)).toBe(0);
+
+    recipientSocket.close();
+  });
+
   it('rejects an invalid upToMessageId (not in this conversation) with ack {ok:false, VALIDATION_ERROR}', async () => {
     const a = await registerUser(app, { displayName: 'Ada' });
     const b = await registerUser(app, { displayName: 'Bob' });

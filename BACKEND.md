@@ -181,7 +181,7 @@ No generic "role check" middleware (single role in MVP). Instead, a per-route **
 
 - `POST /api/auth/register`, `POST /api/auth/login`: 10 requests / 15 min / IP (via `express-rate-limit`), returns 429.
 - `POST /api/auth/refresh`: 30 requests / 15 min / IP.
-- Socket.IO `message:send`: token bucket per authenticated `userId`, enforced in the handler itself, not a library. **REALTIME.md §25 is the single authoritative source for the exact capacity/refill parameters** — not restated here, to avoid the two docs drifting out of sync (resolved 2026-08-31: an earlier draft of this line described "20 messages / 10 sec" here, which reads as a fixed-window rule, while §25 specifies a token bucket — mathematically compatible at the sustained rate but two different-sounding algorithms; only §25's token-bucket description is normative).
+- Socket.IO `message:send`: **implemented M10.** Token bucket per authenticated `userId`, enforced in the handler itself, not a library. **REALTIME.md §25 is the single authoritative source for the exact capacity/refill parameters** — not restated here, to avoid the two docs drifting out of sync (resolved 2026-08-31: an earlier draft of this line described "20 messages / 10 sec" here, which reads as a fixed-window rule, while §25 specifies a token bucket — mathematically compatible at the sustained rate but two different-sounding algorithms; only §25's token-bucket description is normative).
 
 ## 11. MongoDB Indexes (summary — full field lists in §14)
 
