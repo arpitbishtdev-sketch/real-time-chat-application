@@ -53,6 +53,30 @@ describe('listConversationsQuerySchema / listMessagesQuerySchema', () => {
   });
 });
 
+describe('listMessagesQuerySchema — after (M9 missed-message sync)', () => {
+  it('accepts a valid after id alone', () => {
+    const result = listMessagesQuerySchema.safeParse({ after: validId });
+    expect(result.success).toBe(true);
+    expect(result.data.after).toBe(validId);
+  });
+
+  it('rejects a malformed after id', () => {
+    expect(listMessagesQuerySchema.safeParse({ after: 'not-an-id' }).success).toBe(false);
+  });
+
+  it('rejects cursor and after supplied together', () => {
+    expect(listMessagesQuerySchema.safeParse({ cursor: 'abc', after: validId }).success).toBe(
+      false
+    );
+  });
+
+  it('accepts cursor alone and after alone as mutually independent', () => {
+    expect(listMessagesQuerySchema.safeParse({ cursor: 'abc' }).success).toBe(true);
+    expect(listMessagesQuerySchema.safeParse({ after: validId }).success).toBe(true);
+    expect(listMessagesQuerySchema.safeParse({}).success).toBe(true);
+  });
+});
+
 describe('markReadSchema', () => {
   it('accepts a valid ObjectId, rejects a malformed one', () => {
     expect(markReadSchema.safeParse({ upToMessageId: validId }).success).toBe(true);

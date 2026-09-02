@@ -36,7 +36,7 @@ describe('GET /api/conversations/:id/messages', () => {
       .set('Cookie', [a.authCookie]);
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ messages: [], nextCursor: null });
+    expect(res.body).toEqual({ messages: [], nextCursor: null, nextAfter: null });
   });
 
   it('returns persisted messages newest-first and paginates across pages with a stable cursor', async () => {

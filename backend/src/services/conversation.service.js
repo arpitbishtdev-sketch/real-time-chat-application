@@ -227,8 +227,15 @@ export async function listConversations(userId, { cursor, limit }) {
 // "Load older" history for a conversation (BACKEND.md §12), newest-first,
 // backed by the {conversationId, createdAt, _id} compound index (§14).
 // Caller (the controller) has already re-verified membership via
-// assertParticipant — this only builds and runs the query.
-export async function getConversationMessages(conversationId, { cursor, limit }) {
+// assertParticipant — this only builds and runs the query. `after` (M9)
+// branches to the "newer direction" missed-message sync instead — see
+// getMissedMessages below; the two are mutually exclusive by the time this
+// runs (enforced by the route's Zod schema).
+export async function getConversationMessages(conversationId, { cursor, after, limit }) {
+  if (after) {
+    return getMissedMessages(conversationId, after, limit);
+  }
+
   const filter = { conversationId };
 
   if (cursor) {
@@ -268,7 +275,50 @@ export async function getConversationMessages(conversationId, { cursor, limit })
     ? encodeCursor({ createdAt: last.createdAt.toISOString(), id: String(last._id) })
     : null;
 
-  return { messages: page.map(shapeMessage), nextCursor };
+  return { messages: page.map(shapeMessage), nextCursor, nextAfter: null };
+}
+
+// Reconnection / missed-message sync (REALTIME.md §19, PROJECT_SPEC.md M9):
+// "everything strictly newer than the last message the client already has,"
+// oldest-of-the-missed-batch first, so the client can append the page
+// directly onto the end of its existing history in order. `after` is a raw
+// message id, not an opaque cursor blob — the client already knows the id
+// of its own last message, so making it construct an encoded cursor just to
+// ask "what's after this" would be pure friction. The anchor message's
+// `createdAt` is resolved server-side from that id, exactly like
+// markConversationRead resolves `upToMessageId` above, and a well-formed but
+// nonexistent/foreign id is rejected the same way (400, not a silently
+// empty result) since a bogus anchor can never legitimately be "caught up."
+// Same tuple-comparison discipline as the older-direction query (BACKEND.md
+// §12's "newer direction" shape) — required, not optional, since two
+// messages can share the same millisecond `createdAt` here exactly as they
+// can in the older direction (TESTING.md #32).
+async function getMissedMessages(conversationId, after, limit) {
+  const anchor = await Message.findOne({ _id: after, conversationId }).lean();
+  if (!anchor) {
+    throw new AppError(400, 'VALIDATION_ERROR', 'after is not a message in this conversation.');
+  }
+
+  const docs = await Message.find({
+    conversationId,
+    $or: [
+      { createdAt: { $gt: anchor.createdAt } },
+      { createdAt: anchor.createdAt, _id: { $gt: anchor._id } },
+    ],
+  })
+    .sort({ createdAt: 1, _id: 1 })
+    .limit(limit + 1)
+    .lean();
+
+  const hasMore = docs.length > limit;
+  const page = hasMore ? docs.slice(0, limit) : docs;
+  const last = page[page.length - 1];
+
+  return {
+    messages: page.map(shapeMessage),
+    nextCursor: null,
+    nextAfter: hasMore ? String(last._id) : null,
+  };
 }
 
 // `message:delivered` (REALTIME.md §11) — recipient confirms receipt of one

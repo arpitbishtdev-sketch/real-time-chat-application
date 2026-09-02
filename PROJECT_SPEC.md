@@ -171,15 +171,15 @@ See CLAUDE.md §6 for the authoritative list. Summarized: bcrypt password hashin
 - [x] Last seen — `User.lastSeenAt` set on last-socket disconnect, cleared on first-socket reconnect (M7)
 - [x] Message delivery state (sent/delivered/read) — monotonic conditional-atomic transitions, never regress (M8, BACKEND.md §14, REALTIME.md §17a)
 - [x] Read receipts — bulk "read up to X" watermark, `message:status` notifies the sender (M8, REALTIME.md §17)
-- [ ] Reconnection handling
+- [x] Reconnection handling — client re-auth (automatic, cookie resent) + re-join + after-cursor sync on `connect` (M9, REALTIME.md §18/§19); backend contract done, client-side wiring is M14's concern
 
 ### Reliability
-- [ ] Offline recipient handling
-- [ ] Missed-message synchronization
-- [ ] Network interruption recovery
-- [x] Duplicate-message protection — `{conversationId, clientMessageId}` unique index + idempotent retry path (M5, REALTIME.md §13)
+- [x] Offline recipient handling — message persists as `sent`, recovered via history/after-sync on the recipient's next connect (M9, TESTING.md #2)
+- [x] Missed-message synchronization — `GET /conversations/:id/messages?after=<lastKnownMessageId>`, tuple-cursor "newer direction" (M9, REALTIME.md §19, BACKEND.md §12, TESTING.md #6)
+- [ ] Network interruption recovery — covered on the backend (durable-path recovery, M9); the client-visible "Reconnecting…" UX itself is M14's concern (TESTING.md #5, an E2E case)
+- [x] Duplicate-message protection — `{conversationId, clientMessageId}` unique index + idempotent retry path (M5, REALTIME.md §13); verified specifically across a disconnect-before-ack retry (M9, TESTING.md #3) and a real process restart (M9, TESTING.md #7)
 - [x] Message acknowledgements — `{ok, message?, error?}` ack contract (M5, REALTIME.md §11)
-- [ ] Server restart recovery (documented degradation)
+- [x] Server restart recovery (documented degradation) — durable data (Mongo) survives intact; in-memory presence resets to empty by construction (a new process can't inherit another's memory) and rebuilds correctly on reconnect — verified against a real spawned child process + real mongod, not simulated (M9, TESTING.md #7)
 - [~] Multiple tabs/devices support — presence correctly collapses per-user across sockets, and `typing:update` correctly excludes every one of the typer's own sockets (M7); `message:status` reaches every one of the sender's tabs/devices, and two tabs of the same reader calling `message:read` concurrently converge to the higher watermark with no lost/negative unread count (M8); full guarantee (including frontend rendering) still depends on M14/M15
 - [x] Message ordering guarantees — per-conversation in-process send-ordering chain (M5, BACKEND.md §13c); read-side tuple-cursor ordering, correct under same-millisecond ties (M6, BACKEND.md §12, TESTING.md #32)
 
