@@ -301,7 +301,7 @@ These are two separate calls (not one combined update) because they have differe
 | `displayName` | String | yes | 2–50 chars |
 | `avatarUrl` | String | no | |
 | `statusText` | String | no | e.g. "busy", max 100 chars |
-| `lastSeenAt` | Date | no | updated on last-socket disconnect |
+| `lastSeenAt` | Date | no | set when the user's last active socket disconnects, cleared (`$unset`) when their first socket reconnects — only meaningful while offline (M7, REALTIME.md §8) |
 | `createdAt` / `updatedAt` | Date | auto | Mongoose timestamps |
 
 **Indexes:** `{email: 1}` unique. Search index on `displayName` (regex-based `^prefix` query against a small user base is sufficient for MVP; a text index is a documented upgrade path if search needs to be fuzzier).

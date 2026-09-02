@@ -62,11 +62,11 @@ A client can *ask* to join any room name it wants — the server never honors th
 
 ## 8. User-to-Socket Mapping (Presence)
 
-In-memory (single-process, per ARCHITECTURE.md §17): `Map<userId, Set<socketId>>`, maintained in `sockets/presence.js`:
-- On connect (post-auth): add `socketId` to `presenceMap.get(userId)` (creating the set if absent). If this is the user's **first** active socket, broadcast `presence:online` to their contacts (see §11 for "contacts" scoping) and clear any `lastSeenAt`.
+**Implemented M7** (map itself built in M4, exposed as `io.userSockets`; the presence-handling logic around it — §8's bullets below — is M7). In-memory (single-process, per ARCHITECTURE.md §17): `Map<userId, Set<socketId>>`, maintained in `sockets/presence.js`:
+- On connect (post-auth): add `socketId` to `presenceMap.get(userId)` (creating the set if absent). If this is the user's **first** active socket, broadcast `presence:online` to their contacts (see §16 for "contacts" scoping) and clear any `lastSeenAt`.
 - On disconnect: remove `socketId` from the set. If the set becomes **empty**, the user has no more active connections — set `User.lastSeenAt = now`, broadcast `presence:offline`.
 
-This map is why presence is accurately "does this user have *any* active tab/device," not "is this specific socket connected."
+This map is why presence is accurately "does this user have *any* active tab/device," not "is this specific socket connected." A single dropped socket is never equated with "the user went offline" while another of their sockets is still connected.
 
 ## 9. Event Naming Convention
 
@@ -118,11 +118,11 @@ Every payload is validated server-side with a Zod schema (BACKEND.md §4) before
 | `message:delivered` | C→S | Recipient's client confirms receipt of a specific message | required; must be a participant of the message's conversation | `{conversationId, messageId}` | no | Silently ignored if message doesn't belong to a conversation the socket is a participant of (logged server-side as a suspicious no-op, not surfaced as an error to avoid leaking existence). **Also a no-op (by design, not by accident) if the message's status is already `read`** — the update is conditioned on `status: 'sent'`, so a delivered event arriving after the message was already read can never regress it backward. See §17a. |
 | `message:read` | C→S | Recipient marks messages read up to a point | required; participant check | `{conversationId, upToMessageId}` | yes — `{ok}` | Invalid `upToMessageId` (not found / not in this conversation) → `{ok:false, error}`. |
 | `message:status` | S→C | Notify sender their message's delivery/read state changed | scoped to `user:<senderId>` room | see §10 | no | N/A (pure notification; sender's REST fetch would also reflect the true state, so a missed event self-heals on next load). |
-| `typing:start` | C→S | Announce the user started typing | required; participant check | `{conversationId}` | no | Silently dropped if not a participant (no error surfaced — non-critical, non-destructive event). |
-| `typing:stop` | C→S | Announce the user stopped typing | required; participant check | `{conversationId}` | no | Same as above. |
-| `typing:update` | S→C | Notify the other participant of typing state | scoped to `conversation:<id>` room, excluding the sender's own sockets | see §10 | no | N/A — also auto-expires server-side (§15) so a missed `typing:stop` can't wedge the indicator on forever. |
-| `presence:online` | S→C | Notify a user's contacts they came online | scoped to each shared-conversation participant's `user:<id>` room | see §10 | no | N/A |
-| `presence:offline` | S→C | Notify a user's contacts they went offline, with last-seen | scoped as above | see §10 | no | N/A |
+| `typing:start` | C→S | Announce the user started typing | required; participant check | `{conversationId}` | no | **Implemented M7.** Silently dropped if not a participant (no error surfaced — non-critical, non-destructive event). Malformed payload is also silently dropped (same non-critical framing — no `error` event, unlike `conversation:leave`). |
+| `typing:stop` | C→S | Announce the user stopped typing | required; participant check | `{conversationId}` | no | **Implemented M7.** Same as above. |
+| `typing:update` | S→C | Notify the other participant of typing state | scoped to `conversation:<id>` room, excluding the sender's own sockets | see §10 | no | **Implemented M7.** Exclusion covers *every* socket belonging to the typer (all tabs/devices, via the `user:<id>` room every socket already joins on connect — `.except('user:<id>')`), not just the single emitting socket. Also auto-expires server-side (§15) so a missed `typing:stop` — including one lost to a disconnect — can't wedge the indicator on forever. |
+| `presence:online` | S→C | Notify a user's contacts they came online | scoped to each shared-conversation participant's `user:<id>` room | see §10 | no | **Implemented M7.** Fires only on a user's *first* active socket (per-user, not per-socket — §8); a second/third tab or device is a no-op. |
+| `presence:offline` | S→C | Notify a user's contacts they went offline, with last-seen | scoped as above | see §10 | no | **Implemented M7.** Fires only when a user's *last* active socket disconnects, at which point `User.lastSeenAt` is also set. Detected for a clean disconnect immediately, and for an abrupt/uncleanly dropped socket via Socket.IO's built-in ping-timeout (§8, TESTING.md #23) — no custom heartbeat logic. |
 | `connect_error` | S→C (Socket.IO built-in) | Handshake/auth failure | n/a | Socket.IO error object | n/a | Client treats as "not authenticated," redirects to login or attempts a token refresh then reconnects. |
 | `error` | S→C | Structured error for a non-acked failure mid-session | n/a | `{code, message}` | n/a | Client surfaces via the connection-status UI (FRONTEND.md §13) rather than crashing. |
 
@@ -154,12 +154,13 @@ The ack step and the broadcast step are deliberately decoupled failure domains. 
 
 ## 15. Typing Indicators — Detail
 
-- Client debounce: `typing:start` fires on first keystroke after >2s idle; `typing:stop` fires after 2s of continued idle, on send, or on blur.
-- **Server-side TTL backstop:** the server also tracks a timestamp per `(conversationId, userId)` typing entry and auto-expires (emits a synthetic `typing:update {isTyping:false}`) after 5s with no refresh — covering the case where a client disconnects mid-type and never sends `typing:stop` (§21 in TESTING.md's edge case matrix).
+**Implemented M7** (`sockets/typing.handlers.js`).
+- Client debounce: `typing:start` fires on first keystroke after >2s idle; `typing:stop` fires after 2s of continued idle, on send, or on blur. (Client-side debounce itself is an M14/frontend concern — not yet built; the server contract below doesn't depend on the client debouncing correctly.)
+- **Server-side TTL backstop:** a self-refreshing `setTimeout` per `(conversationId, userId)` typing entry (keyed `${conversationId}:${userId}`, in-memory, never persisted) — each `typing:start` clears and restarts it; the timer firing (no refresh within the window) auto-expires the indicator, emitting a synthetic `typing:update {isTyping:false}` and removing the entry. Default window is 5s in production; the socket server accepts an override (`typingTtlMs`) so tests don't have to wait out the real window. This same mechanism — not a separate on-disconnect hook — is what covers a client disconnecting mid-type and never sending `typing:stop` (TESTING.md #22): the entry simply has nothing to refresh it and expires on schedule either way.
 
 ## 16. Presence Events — Detail
 
-Presence broadcasts are scoped to the affected user's **conversation partners only** (found via a `Conversation.find({participants: userId})` query at connect/disconnect time), not globally broadcast to all connected users — bounding fan-out cost and avoiding leaking "who's online" to non-contacts.
+**Implemented M7.** Presence broadcasts are scoped to the affected user's **conversation partners only** (found via a `Conversation.find({participants: userId})` query at connect/disconnect time), not globally broadcast to all connected users — bounding fan-out cost and avoiding leaking "who's online" to non-contacts.
 
 ## 17. Read Receipts — Detail
 

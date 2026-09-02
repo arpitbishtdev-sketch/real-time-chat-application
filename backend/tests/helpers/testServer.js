@@ -9,10 +9,13 @@ import { createSocketServer } from '../../src/sockets/index.js';
 // seam auth.service.js's logoutAllSessions already expects) — per
 // TESTING.md §5, socket behavior is tested against a real running server,
 // never a mocked transport.
-export async function startTestServer() {
+export async function startTestServer(socketOptions = {}) {
   const app = createApp();
   const httpServer = http.createServer(app);
-  const io = createSocketServer(httpServer, { clientOrigin: 'http://localhost:5173' });
+  const io = createSocketServer(httpServer, {
+    clientOrigin: 'http://localhost:5173',
+    ...socketOptions,
+  });
   app.set('io', io);
 
   await new Promise((resolve) => httpServer.listen(0, resolve));
@@ -34,11 +37,12 @@ export async function startTestServer() {
 // Connects a socket.io-client using the same `accessToken=...` cookie
 // string shape testUsers.js's registerUser() already returns — no second
 // credential format invented for sockets.
-export function connectSocket(url, authCookie) {
+export function connectSocket(url, authCookie, options = {}) {
   return ioClient(url, {
     extraHeaders: authCookie ? { Cookie: authCookie } : {},
     reconnection: false,
     forceNew: true,
+    ...options,
   });
 }
 
