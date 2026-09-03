@@ -2,7 +2,7 @@
 
 Related concepts: [[REST API]] [[Socket.IO]] [[Authentication]] [[Presence]] [[Read Receipts]]
 
-> No frontend code is implemented yet. This document defines the architecture it must follow.
+> M11 (app shell, routing, design tokens, base components) is implemented per this document. Everything else described here (conversation/message state, socket integration, presence/typing/read-receipt UI) remains architecture-only until its corresponding milestone (M12+) lands.
 
 ## 1. Folder Structure
 
