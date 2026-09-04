@@ -2,7 +2,7 @@
 
 Related concepts: [[REST API]] [[Socket.IO]] [[Authentication]] [[Presence]] [[Read Receipts]]
 
-> M11 (app shell, routing, design tokens, base components), M12 (authentication UI, auth state) and M13 (conversation list, user search, "start conversation," non-live message history — §7/§8's REST-backed reads and writes, no sockets yet) are implemented per this document. Everything else described here (live socket integration, presence/typing/read-receipt UI, optimistic send) remains architecture-only until its corresponding milestone (M14+) lands.
+> M11 (app shell, routing, design tokens, base components), M12 (authentication UI, auth state), M13 (conversation list, user search, "start conversation," non-live message history — §7/§8's REST-backed reads and writes, no sockets yet) and M14 (§9's socket connection lifecycle, §10's optimistic send, §13's reconnection UI, live `message:new`/reconnection resync merged into the same M13 caches) are implemented per this document. Everything else described here (presence/typing UI §15/§16, read-receipt iconography §17, live unread counts §14) remains architecture-only until its corresponding milestone (M15+) lands.
 
 ## 1. Folder Structure
 
@@ -15,23 +15,27 @@ frontend/
 │   │   ├── users.api.js
 │   │   └── conversations.api.js
 │   ├── sockets/
-│   │   ├── socketClient.js    # single socket.io-client instance, connect/disconnect lifecycle
-│   │   └── socketEvents.js    # typed emit/on helpers matching REALTIME.md's event table
+│   │   └── socketClient.js    # single socket.io-client instance; connect/disconnect lifecycle
+│   │                           # plus emit helpers (sendMessage/joinConversation/leaveConversation)
+│   │                           # matching REALTIME.md's event table — folded in here rather than a
+│   │                           # separate socketEvents.js, since M14 only needed a handful of thin
+│   │                           # emit wrappers, not a full typed event layer
 │   ├── store/
 │   │   ├── authStore.js       # zustand: current user, auth status
-│   │   ├── presenceStore.js   # zustand: onlineUserIds, lastSeen map
-│   │   └── typingStore.js     # zustand: typing state per conversation
+│   │   ├── socketStore.js     # zustand: connection status, the currently-open conversationId
+│   │   ├── presenceStore.js   # zustand: onlineUserIds, lastSeen map (M15)
+│   │   └── typingStore.js     # zustand: typing state per conversation (M15)
 │   ├── queries/                # TanStack Query hooks (server state)
 │   │   ├── useConversations.js
 │   │   ├── useMessages.js
 │   │   └── useUserSearch.js
 │   ├── components/
-│   │   ├── layout/
+│   │   ├── layout/              # AppShell, ConnectionBanner (§13), ThemeToggleButton, ErrorBoundary
 │   │   ├── conversation/       # ConversationsPane (list/search mode switch), ConversationList,
 │   │   │                       # ConversationListItem, NewConversationPanel
 │   │   ├── chat/                # ActiveConversation, ChatHeader, MessageList, MessageBubble,
-│   │   │                       # MessageInput, TypingIndicator (M14+)
-│   │   └── presence/            # PresenceDot, LastSeenLabel
+│   │   │                       # MessageInput, TypingIndicator (M15)
+│   │   └── presence/            # PresenceDot, LastSeenLabel (M15)
 │   ├── pages/
 │   │   ├── LoginPage.jsx
 │   │   ├── RegisterPage.jsx
@@ -40,8 +44,11 @@ frontend/
 │   ├── hooks/
 │   │   ├── useAuth.js
 │   │   ├── useDebouncedValue.js
-│   │   └── useSocketConnection.js
-│   ├── utils/                   # authValidation.js, apiErrors.js, formatTime.js, messages.js
+│   │   ├── useSocketConnection.js  # §9's connect/disconnect lifecycle, resync, message:new listener
+│   │   ├── useConversationRoom.js  # conversation:join/leave for whichever conversation is open
+│   │   └── useMessageSend.js       # §10's optimistic send/reconcile/retry
+│   ├── utils/                   # authValidation.js, apiErrors.js, formatTime.js, messages.js,
+│   │                             # messageCache.js (pure useMessages-cache merge/reconcile helpers)
 │   ├── routes/
 │   │   └── AppRouter.jsx
 │   └── App.jsx

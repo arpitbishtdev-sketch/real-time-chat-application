@@ -1,15 +1,52 @@
 import { useConversations } from '../../queries/useConversations.js';
+import { useConversationRoom } from '../../hooks/useConversationRoom.js';
+import { useMessageSend } from '../../hooks/useMessageSend.js';
+import { useSocketStore } from '../../store/socketStore.js';
 import { ChatHeader } from './ChatHeader.jsx';
 import { MessageList } from './MessageList.jsx';
+import { MessageInput } from './MessageInput.jsx';
+import { EmptyState } from '../ui/EmptyState.jsx';
 
+// PROJECT_SPEC.md M14 tasks 2/3/4 — joins the conversation's socket room
+// for as long as it's the one open (useConversationRoom), and wires the
+// composer's optimistic send (useMessageSend). Sending is disabled while
+// the socket isn't connected or the room join hasn't succeeded yet, with
+// the reason surfaced to the composer rather than silently failing a
+// send the server was never going to receive.
 export function ActiveConversation({ conversationId }) {
   const { data, isLoading } = useConversations();
   const conversation = data?.conversations.find((c) => c._id === conversationId) ?? null;
 
+  const connectionStatus = useSocketStore((state) => state.status);
+  const { joinError } = useConversationRoom(conversationId);
+  const { send, retry } = useMessageSend(conversationId);
+
+  if (joinError) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col">
+        <ChatHeader participant={conversation?.otherParticipant ?? null} loading={isLoading} />
+        <div className="flex flex-1 items-center justify-center">
+          <EmptyState
+            title="Couldn't open this conversation"
+            description={joinError.message ?? 'You may not have access to this conversation.'}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  const disabled = connectionStatus !== 'connected';
+  const disabledReason = disabled
+    ? connectionStatus === 'connecting'
+      ? 'Connecting…'
+      : 'Reconnecting…'
+    : undefined;
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <ChatHeader participant={conversation?.otherParticipant ?? null} loading={isLoading} />
-      <MessageList conversationId={conversationId} />
+      <MessageList conversationId={conversationId} onRetry={retry} />
+      <MessageInput onSend={send} disabled={disabled} disabledReason={disabledReason} />
     </div>
   );
 }

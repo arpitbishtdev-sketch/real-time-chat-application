@@ -2,8 +2,10 @@ import { useState } from 'react';
 import { Outlet } from 'react-router-dom';
 
 import { useAuthStore } from '../../store/authStore.js';
+import { useSocketConnection } from '../../hooks/useSocketConnection.js';
 import { Avatar } from '../ui/Avatar.jsx';
 import { ThemeToggleButton } from './ThemeToggleButton.jsx';
+import { ConnectionBanner } from './ConnectionBanner.jsx';
 
 function LogoutIcon(props) {
   return (
@@ -34,6 +36,12 @@ export function AppShell() {
   const logout = useAuthStore((state) => state.logout);
   const [loggingOut, setLoggingOut] = useState(false);
 
+  // PROJECT_SPEC.md M14 task 1 — connects once the shell for an
+  // authenticated session mounts, disconnects on logout/session loss
+  // (FRONTEND.md §9). Lives here rather than App.jsx since AppShell only
+  // renders once RequireAuth has already confirmed authStore.status.
+  useSocketConnection();
+
   async function handleLogout() {
     setLoggingOut(true);
     try {
@@ -62,6 +70,7 @@ export function AppShell() {
           {user && <Avatar name={user.displayName} src={user.avatarUrl} size="sm" />}
         </div>
       </header>
+      <ConnectionBanner />
       <main className="flex min-h-0 flex-1">
         <Outlet />
       </main>

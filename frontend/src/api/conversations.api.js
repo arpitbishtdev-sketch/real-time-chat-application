@@ -20,6 +20,11 @@ export function createConversation(participantId) {
   });
 }
 
-export function getMessages(conversationId, { cursor, limit } = {}) {
-  return apiRequest(`/api/conversations/${conversationId}/messages${toQueryString({ cursor, limit })}`);
+// `after` is the reconnection/missed-message-sync direction (BACKEND.md
+// §12, REALTIME.md §19) — a raw message id, never combined with `cursor`
+// in the same call.
+export function getMessages(conversationId, { cursor, limit, after } = {}) {
+  return apiRequest(
+    `/api/conversations/${conversationId}/messages${toQueryString({ cursor, limit, after })}`
+  );
 }
