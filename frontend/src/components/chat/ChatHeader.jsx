@@ -45,6 +45,9 @@ export function ChatHeader({ participant, loading, online, lastSeenAt, isTyping 
       </Link>
       {loading ? (
         <>
+          <span role="status" className="sr-only">
+            Loading conversation…
+          </span>
           <Skeleton className="h-8 w-8 rounded-full" />
           <Skeleton className="h-4 w-32" />
         </>

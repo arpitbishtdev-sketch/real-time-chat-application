@@ -17,7 +17,7 @@ export function ChatPage() {
     <div className="flex min-h-0 flex-1">
       <aside
         className={cx(
-          'w-full max-w-xs shrink-0 flex-col border-r border-line sm:flex',
+          'w-full shrink-0 flex-col border-r border-line sm:max-w-xs sm:flex',
           conversationId ? 'hidden' : 'flex'
         )}
       >

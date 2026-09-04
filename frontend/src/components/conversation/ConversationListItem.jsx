@@ -23,7 +23,12 @@ export function ConversationListItem({ conversation }) {
       }
     >
       <div className="relative shrink-0">
-        <Avatar name={otherParticipant?.displayName} src={otherParticipant?.avatarUrl} size="md" />
+        <Avatar
+          name={otherParticipant?.displayName}
+          src={otherParticipant?.avatarUrl}
+          size="md"
+          decorative
+        />
         <PresenceDot online={online} className="absolute -right-0.5 -bottom-0.5" />
       </div>
       <div className="min-w-0 flex-1">
@@ -40,7 +45,7 @@ export function ConversationListItem({ conversation }) {
               className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-accent px-1.5 text-xs font-medium text-ink-inverted"
               aria-label={`${unreadCount} unread`}
             >
-              {unreadCount}
+              {unreadCount > 99 ? '99+' : unreadCount}
             </span>
           )}
         </div>

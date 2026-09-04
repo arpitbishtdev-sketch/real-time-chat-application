@@ -66,6 +66,9 @@ export function NewConversationPanel({ onClose }) {
         )}
         {trimmed && isLoading && (
           <div className="flex flex-col gap-3 px-4 py-3">
+            <span role="status" className="sr-only">
+              Searching…
+            </span>
             {[0, 1].map((i) => (
               <div key={i} className="flex items-center gap-3">
                 <Skeleton className="h-9 w-9 shrink-0 rounded-full" />
@@ -90,7 +93,7 @@ export function NewConversationPanel({ onClose }) {
                   disabled={startingId === user._id}
                   className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors duration-150 hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  <Avatar name={user.displayName} src={user.avatarUrl} size="md" />
+                  <Avatar name={user.displayName} src={user.avatarUrl} size="md" decorative />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-ink">{user.displayName}</p>
                     {user.statusText && (

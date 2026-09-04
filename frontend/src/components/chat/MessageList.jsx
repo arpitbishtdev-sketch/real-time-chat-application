@@ -66,6 +66,9 @@ export function MessageList({ conversationId, onRetry }) {
   if (isLoading) {
     return (
       <div className="flex flex-1 flex-col justify-end gap-2 px-4 py-4">
+        <span role="status" className="sr-only">
+          Loading messages…
+        </span>
         <Skeleton className="h-10 w-2/3" />
         <Skeleton className="h-10 w-1/2 self-end" />
         <Skeleton className="h-10 w-3/5" />
@@ -101,7 +104,14 @@ export function MessageList({ conversationId, onRetry }) {
   }
 
   return (
-    <div ref={containerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-4 py-4">
+    <div
+      ref={containerRef}
+      onScroll={handleScroll}
+      role="log"
+      aria-live="polite"
+      aria-relevant="additions"
+      className="flex-1 overflow-y-auto px-4 py-4"
+    >
       {hasNextPage && (
         <div className="mb-3 flex justify-center">
           <Button

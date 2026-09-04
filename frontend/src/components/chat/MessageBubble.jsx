@@ -75,7 +75,15 @@ export function MessageBubble({ message, isOwn, groupStart, onRetry }) {
 
   return (
     <div className={cx('flex', isOwn ? 'justify-end' : 'justify-start', groupStart ? 'mt-3' : 'mt-0.5')}>
-      <div className={cx('flex max-w-[75%] flex-col', isOwn ? 'items-end' : 'items-start')}>
+      <div
+        className={cx(
+          // M16 fix: 75% alone left message lines absurdly wide on large
+          // desktop viewports (FRONTEND.md §20's "restrained" bar) — cap the
+          // bubble at a comfortable reading width too.
+          'flex min-w-0 max-w-[min(75%,34rem)] flex-col',
+          isOwn ? 'items-end' : 'items-start'
+        )}
+      >
         <div
           className={cx(
             'rounded-lg px-3 py-2',
@@ -84,7 +92,12 @@ export function MessageBubble({ message, isOwn, groupStart, onRetry }) {
             isFailed && 'opacity-80 ring-1 ring-danger'
           )}
         >
-          <p className="whitespace-pre-wrap break-words text-base">{message.text}</p>
+          {/* M16 fix: overflow-wrap:break-word (Tailwind's break-words) doesn't
+              shrink a shrink-to-fit box's min-content size, so a single long
+              unbroken token still overflowed max-w-[75%] and the viewport.
+              overflow-wrap:anywhere (wrap-anywhere) does affect min-content
+              sizing, so the bubble correctly shrinks to fit. */}
+          <p className="whitespace-pre-wrap wrap-anywhere text-base">{message.text}</p>
           <p className="mt-1 flex items-center gap-1 text-xs">
             <span className={isOwn ? 'text-ink-inverted/70' : 'text-ink-faint'}>
               {isSending ? 'Sending…' : formatMessageTime(message.createdAt)}
