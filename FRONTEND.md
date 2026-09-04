@@ -2,7 +2,7 @@
 
 Related concepts: [[REST API]] [[Socket.IO]] [[Authentication]] [[Presence]] [[Read Receipts]]
 
-> M11 (app shell, routing, design tokens, base components) is implemented per this document. Everything else described here (conversation/message state, socket integration, presence/typing/read-receipt UI) remains architecture-only until its corresponding milestone (M12+) lands.
+> M11 (app shell, routing, design tokens, base components), M12 (authentication UI, auth state) and M13 (conversation list, user search, "start conversation," non-live message history — §7/§8's REST-backed reads and writes, no sockets yet) are implemented per this document. Everything else described here (live socket integration, presence/typing/read-receipt UI, optimistic send) remains architecture-only until its corresponding milestone (M14+) lands.
 
 ## 1. Folder Structure
 
@@ -27,8 +27,10 @@ frontend/
 │   │   └── useUserSearch.js
 │   ├── components/
 │   │   ├── layout/
-│   │   ├── conversation/       # ConversationList, ConversationListItem
-│   │   ├── chat/                # MessageList, MessageBubble, MessageInput, TypingIndicator
+│   │   ├── conversation/       # ConversationsPane (list/search mode switch), ConversationList,
+│   │   │                       # ConversationListItem, NewConversationPanel
+│   │   ├── chat/                # ActiveConversation, ChatHeader, MessageList, MessageBubble,
+│   │   │                       # MessageInput, TypingIndicator (M14+)
 │   │   └── presence/            # PresenceDot, LastSeenLabel
 │   ├── pages/
 │   │   ├── LoginPage.jsx
@@ -37,7 +39,9 @@ frontend/
 │   │   └── ProfilePage.jsx
 │   ├── hooks/
 │   │   ├── useAuth.js
+│   │   ├── useDebouncedValue.js
 │   │   └── useSocketConnection.js
+│   ├── utils/                   # authValidation.js, apiErrors.js, formatTime.js, messages.js
 │   ├── routes/
 │   │   └── AppRouter.jsx
 │   └── App.jsx
