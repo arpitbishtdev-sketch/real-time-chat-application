@@ -2,6 +2,9 @@ import { Link } from 'react-router-dom';
 
 import { Avatar } from '../ui/Avatar.jsx';
 import { Skeleton } from '../ui/Skeleton.jsx';
+import { PresenceDot } from '../presence/PresenceDot.jsx';
+import { LastSeenLabel } from '../presence/LastSeenLabel.jsx';
+import { TypingIndicator } from './TypingIndicator.jsx';
 
 function BackIcon(props) {
   return (
@@ -25,7 +28,12 @@ function BackIcon(props) {
 // falls back to a generic label rather than hanging on a permanent
 // skeleton (see MessageList's `loading` case for the distinct "still
 // fetching" state).
-export function ChatHeader({ participant, loading }) {
+// PROJECT_SPEC.md M15 tasks 1/2 — the subtitle line shows typing state when
+// present, otherwise online/last-seen (FRONTEND.md §15/§16); typing takes
+// priority since it's the more immediately actionable/attention-worthy
+// signal of the two. `aria-live="polite"` since this line changes without
+// any user-initiated action on this screen.
+export function ChatHeader({ participant, loading, online, lastSeenAt, isTyping }) {
   return (
     <div className="flex h-14 shrink-0 items-center gap-3 border-b border-line px-4">
       <Link
@@ -42,10 +50,26 @@ export function ChatHeader({ participant, loading }) {
         </>
       ) : (
         <>
-          <Avatar name={participant?.displayName} src={participant?.avatarUrl} size="sm" />
-          <span className="truncate text-base font-medium text-ink">
-            {participant?.displayName ?? 'Conversation'}
-          </span>
+          <div className="relative shrink-0">
+            <Avatar name={participant?.displayName} src={participant?.avatarUrl} size="sm" />
+            {participant && <PresenceDot online={online} className="absolute -right-0.5 -bottom-0.5" />}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-base font-medium text-ink">
+              {participant?.displayName ?? 'Conversation'}
+            </p>
+            {participant && (
+              <p className="truncate text-xs text-ink-faint" aria-live="polite">
+                {isTyping ? (
+                  <TypingIndicator name={participant.displayName} />
+                ) : online ? (
+                  'Online'
+                ) : (
+                  <LastSeenLabel lastSeenAt={lastSeenAt} />
+                )}
+              </p>
+            )}
+          </div>
         </>
       )}
     </div>

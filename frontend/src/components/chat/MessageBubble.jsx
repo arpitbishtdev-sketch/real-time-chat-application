@@ -1,6 +1,63 @@
 import { cx } from '../ui/cx.js';
 import { formatMessageTime } from '../../utils/formatTime.js';
 
+function CheckIcon(props) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" {...props}>
+      <path
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M3 8.5l3 3 7-7"
+      />
+    </svg>
+  );
+}
+
+function DoubleCheckIcon(props) {
+  return (
+    <svg viewBox="0 0 20 16" fill="none" aria-hidden="true" {...props}>
+      <path
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M1 8.5l3 3 7-7"
+      />
+      <path
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M8 8.5l3 3 7-7"
+      />
+    </svg>
+  );
+}
+
+const STATUS_LABEL = { sent: 'Sent', delivered: 'Delivered', read: 'Read' };
+
+// FRONTEND.md §17/§19 — single check / double check / filled double check,
+// with a text alternative (aria-label) so the state isn't carried by
+// shape+color alone for anyone using a screen reader.
+function MessageStatusIcon({ status }) {
+  const label = STATUS_LABEL[status];
+  if (!label) return null;
+
+  const Icon = status === 'sent' ? CheckIcon : DoubleCheckIcon;
+
+  return (
+    <span
+      role="img"
+      aria-label={label}
+      className={status === 'read' ? 'text-ink-inverted' : 'text-ink-inverted/70'}
+    >
+      <Icon className="h-3 w-3" />
+    </span>
+  );
+}
+
 // FRONTEND.md §20 — the user's own messages carry the one accent color in
 // the whole palette; everyone else's are a neutral surface. `groupStart`
 // controls spacing only (tight within a consecutive run from the same
@@ -28,8 +85,11 @@ export function MessageBubble({ message, isOwn, groupStart, onRetry }) {
           )}
         >
           <p className="whitespace-pre-wrap break-words text-base">{message.text}</p>
-          <p className={cx('mt-1 text-xs', isOwn ? 'text-ink-inverted/70' : 'text-ink-faint')}>
-            {isSending ? 'Sending…' : formatMessageTime(message.createdAt)}
+          <p className="mt-1 flex items-center gap-1 text-xs">
+            <span className={isOwn ? 'text-ink-inverted/70' : 'text-ink-faint'}>
+              {isSending ? 'Sending…' : formatMessageTime(message.createdAt)}
+            </span>
+            {isOwn && !isSending && !isFailed && <MessageStatusIcon status={message.status} />}
           </p>
         </div>
         {isFailed && (

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
 import { cx } from '../ui/cx.js';
+import { useTypingEmitter } from '../../hooks/useTypingEmitter.js';
 
 const MAX_LENGTH = 4000; // mirrors backend/src/validation/socket.schema.js's message:send text limit
 
@@ -25,8 +26,9 @@ function SendIcon(props) {
 // disabled while the socket isn't connected, with a reason a screen reader
 // can announce, rather than silently swallowing a send no one told the
 // user wouldn't go anywhere.
-export function MessageInput({ onSend, disabled, disabledReason }) {
+export function MessageInput({ conversationId, onSend, disabled, disabledReason }) {
   const [text, setText] = useState('');
+  const { notifyTyping, notifyStopped } = useTypingEmitter(conversationId);
 
   const trimmed = text.trim();
   const canSend = !disabled && trimmed.length > 0;
@@ -35,6 +37,20 @@ export function MessageInput({ onSend, disabled, disabledReason }) {
     if (!canSend) return;
     onSend(text);
     setText('');
+    // FRONTEND.md §16 — stop is also client-initiated on submit, not left
+    // to expire only via the server-side TTL.
+    notifyStopped();
+  }
+
+  function handleChange(event) {
+    setText(event.target.value);
+    if (event.target.value.trim().length > 0) {
+      notifyTyping();
+    } else {
+      // An emptied draft (e.g. select-all + delete) is "not typing" right
+      // away, same as blur/submit — no reason to wait out the idle timer.
+      notifyStopped();
+    }
   }
 
   function handleKeyDown(event) {
@@ -57,8 +73,9 @@ export function MessageInput({ onSend, disabled, disabledReason }) {
       <textarea
         id="message-input"
         value={text}
-        onChange={(event) => setText(event.target.value)}
+        onChange={handleChange}
         onKeyDown={handleKeyDown}
+        onBlur={notifyStopped}
         disabled={disabled}
         maxLength={MAX_LENGTH}
         rows={1}

@@ -2,10 +2,15 @@ import { NavLink } from 'react-router-dom';
 
 import { cx } from '../ui/cx.js';
 import { Avatar } from '../ui/Avatar.jsx';
+import { PresenceDot } from '../presence/PresenceDot.jsx';
+import { usePresence } from '../../store/presenceStore.js';
 import { formatRelativeTime } from '../../utils/formatTime.js';
 
 export function ConversationListItem({ conversation }) {
   const { _id, otherParticipant, lastMessageAt, lastMessagePreview, unreadCount } = conversation;
+  // FRONTEND.md §15 — dot only here (full "last seen" text lives in the
+  // chat header, where there's room for it without crowding the list row).
+  const { online } = usePresence(otherParticipant?._id);
 
   return (
     <NavLink
@@ -17,7 +22,10 @@ export function ConversationListItem({ conversation }) {
         )
       }
     >
-      <Avatar name={otherParticipant?.displayName} src={otherParticipant?.avatarUrl} size="md" />
+      <div className="relative shrink-0">
+        <Avatar name={otherParticipant?.displayName} src={otherParticipant?.avatarUrl} size="md" />
+        <PresenceDot online={online} className="absolute -right-0.5 -bottom-0.5" />
+      </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-2">
           <p className="truncate text-sm font-medium text-ink">

@@ -2,7 +2,7 @@
 
 Related concepts: [[REST API]] [[Socket.IO]] [[Authentication]] [[Presence]] [[Read Receipts]]
 
-> M11 (app shell, routing, design tokens, base components), M12 (authentication UI, auth state), M13 (conversation list, user search, "start conversation," non-live message history — §7/§8's REST-backed reads and writes, no sockets yet) and M14 (§9's socket connection lifecycle, §10's optimistic send, §13's reconnection UI, live `message:new`/reconnection resync merged into the same M13 caches) are implemented per this document. Everything else described here (presence/typing UI §15/§16, read-receipt iconography §17, live unread counts §14) remains architecture-only until its corresponding milestone (M15+) lands.
+> M11 (app shell, routing, design tokens, base components), M12 (authentication UI, auth state), M13 (conversation list, user search, "start conversation," non-live message history — §7/§8's REST-backed reads and writes, no sockets yet), M14 (§9's socket connection lifecycle, §10's optimistic send, §13's reconnection UI, live `message:new`/reconnection resync merged into the same M13 caches) and M15 (§14's live unread counts, §15's presence UI, §16's typing indicator UI, §17's read-receipt iconography) are implemented per this document. Everything else described here (§18/§19/§20's responsive/accessibility/visual-design bar) is applied incrementally as each screen is built, with a dedicated audit pass in M16.
 
 ## 1. Folder Structure
 
@@ -23,10 +23,10 @@ frontend/
 │   ├── store/
 │   │   ├── authStore.js       # zustand: current user, auth status
 │   │   ├── socketStore.js     # zustand: connection status, the currently-open conversationId
-│   │   ├── presenceStore.js   # zustand: onlineUserIds, lastSeen map (M15)
-│   │   └── typingStore.js     # zustand: typing state per conversation (M15)
+│   │   ├── presenceStore.js   # zustand: onlineUserIds, lastSeen map + usePresence() selector
+│   │   └── typingStore.js     # zustand: typing state per conversation + useIsUserTyping() selector
 │   ├── queries/                # TanStack Query hooks (server state)
-│   │   ├── useConversations.js
+│   │   ├── useConversations.js  # also seeds presenceStore's lastSeen map from REST (§15)
 │   │   ├── useMessages.js
 │   │   └── useUserSearch.js
 │   ├── components/
@@ -34,8 +34,8 @@ frontend/
 │   │   ├── conversation/       # ConversationsPane (list/search mode switch), ConversationList,
 │   │   │                       # ConversationListItem, NewConversationPanel
 │   │   ├── chat/                # ActiveConversation, ChatHeader, MessageList, MessageBubble,
-│   │   │                       # MessageInput, TypingIndicator (M15)
-│   │   └── presence/            # PresenceDot, LastSeenLabel (M15)
+│   │   │                       # MessageInput, TypingIndicator
+│   │   └── presence/            # PresenceDot, LastSeenLabel
 │   ├── pages/
 │   │   ├── LoginPage.jsx
 │   │   ├── RegisterPage.jsx
@@ -44,9 +44,15 @@ frontend/
 │   ├── hooks/
 │   │   ├── useAuth.js
 │   │   ├── useDebouncedValue.js
-│   │   ├── useSocketConnection.js  # §9's connect/disconnect lifecycle, resync, message:new listener
-│   │   ├── useConversationRoom.js  # conversation:join/leave for whichever conversation is open
-│   │   └── useMessageSend.js       # §10's optimistic send/reconcile/retry
+│   │   ├── useDocumentVisibility.js # Page Visibility API wrapper — read-receipt gating (§14)
+│   │   ├── useSocketConnection.js  # §9's connect/disconnect lifecycle, resync, and every global
+│   │   │                           # socket listener (message:new, presence:*, typing:update,
+│   │   │                           # message:status)
+│   │   ├── useConversationRoom.js  # conversation:join/leave for whichever conversation is open;
+│   │   │                           # also clears typingStore's entry for a room once left (§16)
+│   │   ├── useMessageSend.js       # §10's optimistic send/reconcile/retry
+│   │   ├── useTypingEmitter.js     # §16's typing:start/stop debounce, one per open composer
+│   │   └── useReadReceipts.js      # §14's "read up to latest visible" batched message:read
 │   ├── utils/                   # authValidation.js, apiErrors.js, formatTime.js, messages.js,
 │   │                             # messageCache.js (pure useMessages-cache merge/reconcile helpers)
 │   ├── routes/
@@ -146,19 +152,23 @@ A persistent, unobtrusive connection-status indicator (small banner or dot) refl
 
 ## 14. Unread Messages
 
-Per-conversation unread count badge in `ConversationList`, sourced from the conversation's cached `unreadCount` field (updated live via `message:new` for other conversations, or cleared via the `message:read` flow — see §7 — for the currently-open one). A conversation is marked read when it's the active route **and** the tab is focused/visible (using the Page Visibility API) — merely having the route open in a backgrounded tab does not mark messages read.
+Per-conversation unread count badge in `ConversationList`, sourced from the conversation's cached `unreadCount` field. A conversation is marked read when it's the active route **and** the tab is focused/visible (`useDocumentVisibility`, wrapping the Page Visibility API) — merely having the route open in a backgrounded tab does not mark messages read; `useReadReceipts` emits `message:read` with `upToMessageId` set to the newest message currently loaded for that conversation (batched — one call per distinct watermark, never one per message, REALTIME.md §17), and clears the cached `unreadCount` to 0 on a successful ack.
+
+**Live-update scope (resolved M15):** `unreadCount` increments live, via the same global `message:new` listener that appends the message itself (§8), only for the conversation currently occupying `socketStore.activeConversationId` — e.g. it's the open route but the tab is backgrounded, so §14's read-marking condition isn't met. This is the only conversation this socket connection *can* receive `message:new` for: a client only ever joins `conversation:<id>` for the one conversation it currently has open (REALTIME.md §7's join contract), so a message arriving in any other conversation never reaches this socket at all — its `unreadCount` becomes stale until the next REST refetch of `['conversations']` (on reconnect, per §9, or a full reload). This is a real constraint of the current backend's room-broadcast scope, not a frontend gap: closing it would need a backend-side broadcast to each participant's `user:<id>` room on `message:send` (mirroring `message:status`'s existing pattern), which is out of M15's frontend-only scope.
 
 ## 15. Presence UI
 
-Green/gray dot on `ConversationListItem` and in the open chat's header, driven by `presenceStore`. When offline, replaced by a `LastSeenLabel` ("last seen 2 hours ago") computed from the user's `lastSeenAt`.
+`PresenceDot` (green/gray, always visible either way, with a text `aria-label` per §19) renders on `ConversationListItem`'s avatar and in the open chat's `ChatHeader`, both reading `usePresence(userId)` (`presenceStore.js`). In the header, when offline, the dot's neighboring text line is replaced by `LastSeenLabel` ("Last seen 2h ago") computed from the store's `lastSeenAt`; `ConversationListItem` shows the dot only (no room for the text line without crowding the row).
+
+`presenceStore` is populated two ways: live `presence:online`/`presence:offline` events (`useSocketConnection`) are the source of truth once observed; `useConversations` seeds `lastSeenByUserId` from each conversation's `otherParticipant.lastSeenAt` (REST) as a cold-start bootstrap only, for a contact this session hasn't yet seen a live event for — REST never overwrites a contact already known online this session (`presenceStore.js`'s `seedLastSeen`). **Known limitation:** a contact who was already online *before* this client connected has no way to be discovered as online — there is no "current presence snapshot" query, only the live event stream from the moment a `presence:online`/`presence:offline` broadcast actually fires (REALTIME.md §8/§16) — so such a contact renders as offline/last-seen until their next state transition.
 
 ## 16. Typing Indicator UI
 
-`MessageInput` emits `typing:start` on first keystroke after idle, and `typing:stop` after a debounce window (e.g. 2s of no input) or on submit/blur — never left to expire only via a server-side timeout as the sole mechanism (client-initiated stop keeps the indicator snappy; a server-side TTL is still the backstop for a client that disconnects mid-type, see REALTIME.md). The open chat's header/footer shows "X is typing…" driven by `typingStore`, scoped to the active conversation only.
+`useTypingEmitter(conversationId)` (used by `MessageInput`) emits `typing:start` on first keystroke after idle, and `typing:stop` after a 2s idle debounce, on submit, or on blur — never left to expire only via a server-side timeout as the sole mechanism (client-initiated stop keeps the indicator snappy; a server-side TTL is still the backstop for a client that disconnects mid-type, see REALTIME.md §15). `useConversationRoom` clears the conversation's `typingStore` entry when its room is left, since no further `typing:update` for that room can ever arrive afterward to self-correct a stale entry. `TypingIndicator` renders "X is typing…" in `ChatHeader`'s subtitle line (taking priority over the online/last-seen text while active), driven by `useIsUserTyping(conversationId, userId)`, scoped to the active conversation only.
 
 ## 17. Read Receipt UI
 
-Message bubbles sent by the current user show a small status icon: single check (`sent`), double check (`delivered`), double check colored/filled (`read`) — a familiar, minimal pattern. No per-recipient breakdown needed since conversations are strictly 1-to-1 in MVP.
+Message bubbles sent by the current user show a small status icon (`MessageStatusIcon` in `MessageBubble`): single check (`sent`), double check (`delivered`), double check at full opacity vs. the other two states' dimmed 70% (`read`) — a familiar, minimal pattern, with a text `aria-label` ("Sent"/"Delivered"/"Read") per §19. No per-recipient breakdown needed since conversations are strictly 1-to-1 in MVP. Status transitions arrive via the global `message:status` listener (`useSocketConnection`), applied through `messageCache.js`'s `applyMessageDeliveredStatus`/`applyMessageReadStatus` — both monotonic (never regress `read` back to `delivered`/`sent`), mirroring REALTIME.md §17a's server-side guarantee client-side as well, in case the two events themselves arrive out of order.
 
 ## 18. Responsive Design Expectations
 

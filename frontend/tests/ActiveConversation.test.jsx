@@ -16,6 +16,13 @@ vi.mock('../src/sockets/socketClient.js', () => ({
   sendMessage: vi.fn(),
   joinConversation: vi.fn(),
   leaveConversation: vi.fn(),
+  // M15 additions (MessageInput now drives useTypingEmitter) — mocked here
+  // purely so this M14 suite's existing scenarios keep working unchanged;
+  // typing behavior itself is covered in RealtimePresenceTyping.test.jsx.
+  emitTypingStart: vi.fn(),
+  emitTypingStop: vi.fn(),
+  emitMessageDelivered: vi.fn(),
+  emitMessageRead: vi.fn(),
 }));
 
 import { ActiveConversation } from '../src/components/chat/ActiveConversation.jsx';

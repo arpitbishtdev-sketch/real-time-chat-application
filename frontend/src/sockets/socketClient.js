@@ -63,3 +63,38 @@ export function leaveConversation(conversationId) {
   if (!socket.connected) return;
   socket.emit('conversation:leave', { conversationId });
 }
+
+// typing:start / typing:stop (REALTIME.md §11/§15, FRONTEND.md §16) — no
+// ack, explicitly non-critical/best-effort. Guarded the same way as
+// leaveConversation: a disconnected socket has nothing to notify, and the
+// server-side TTL (REALTIME.md §15) already covers a client that goes
+// silent mid-type for any reason, disconnect included.
+export function emitTypingStart(conversationId) {
+  if (!socket.connected) return;
+  socket.emit('typing:start', { conversationId });
+}
+
+export function emitTypingStop(conversationId) {
+  if (!socket.connected) return;
+  socket.emit('typing:stop', { conversationId });
+}
+
+// message:delivered (REALTIME.md §11) — recipient's client confirms
+// receipt of one specific message. No ack; malformed/unauthorized payloads
+// are silently dropped server-side by design (REALTIME.md §11's event
+// table), so there is nothing for the client to react to either way.
+export function emitMessageDelivered(conversationId, messageId) {
+  if (!socket.connected) return;
+  socket.emit('message:delivered', { conversationId, messageId });
+}
+
+// message:read (REALTIME.md §11/§17) — bulk "read up to X" watermark, acked
+// with `{ok, error?}` so the caller can tell a genuine failure (not a
+// participant, malformed watermark) apart from success/no-op.
+export function emitMessageRead(conversationId, upToMessageId) {
+  return new Promise((resolve) => {
+    socket.emit('message:read', { conversationId, upToMessageId }, (response) => {
+      resolve(response ?? { ok: false, error: { code: 'INTERNAL_ERROR', message: 'No response.' } });
+    });
+  });
+}
