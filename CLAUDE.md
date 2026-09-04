@@ -225,7 +225,7 @@ Living index — update statuses (`[ ]` / `[~]` / `[x]`) as milestones complete.
 | [x] M9 | Reconnection, Offline Sync & Idempotency | M5, M6, M8 |
 | [x] M10 | Backend Security Hardening, Validation & Rate Limiting | M2–M9 |
 | [x] M11 | Frontend Foundation | M0, M3 |
-| [ ] M12 | Authentication UI | M2, M11 |
+| [x] M12 | Authentication UI | M2, M11 |
 | [ ] M13 | Conversation UI | M3, M6, M12 |
 | [ ] M14 | Real-Time Messaging UI | M4, M5, M9, M13 |
 | [ ] M15 | Presence / Typing / Read Receipt / Unread UI | M7, M8, M14 |
