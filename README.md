@@ -2,7 +2,7 @@
 
 A standalone, from-scratch real-time chat app (MERN + Socket.IO) built to demonstrate interview-grade fundamentals in backend API design, real-time systems, data modeling, authentication/authorization, reliability engineering, and security engineering.
 
-See `CLAUDE.md`, `PROJECT_SPEC.md`, `ARCHITECTURE.md`, `BACKEND.md`, `FRONTEND.md`, `REALTIME.md`, and `TESTING.md` for the full design and milestone roadmap. This repository is through **M18 — Deployment, Logging & Observability** (CLAUDE.md §20 has the live milestone index).
+See `CLAUDE.md`, `PROJECT_SPEC.md`, `ARCHITECTURE.md`, `BACKEND.md`, `FRONTEND.md`, `REALTIME.md`, and `TESTING.md` for the full design and milestone roadmap. This repository is through **M19 — Final Audit, Documentation & Interview Preparation**, the final milestone of the project (CLAUDE.md §20 has the live milestone index).
 
 ## Prerequisites
 

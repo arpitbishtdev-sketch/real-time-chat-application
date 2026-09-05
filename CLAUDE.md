@@ -226,12 +226,12 @@ Living index — update statuses (`[ ]` / `[~]` / `[x]`) as milestones complete.
 | [x] M10 | Backend Security Hardening, Validation & Rate Limiting | M2–M9 |
 | [x] M11 | Frontend Foundation | M0, M3 |
 | [x] M12 | Authentication UI | M2, M11 |
-| [~] M13 | Conversation UI | M3, M6, M12 |
-| [~] M14 | Real-Time Messaging UI | M4, M5, M9, M13 |
+| [x] M13 | Conversation UI | M3, M6, M12 |
+| [x] M14 | Real-Time Messaging UI | M4, M5, M9, M13 |
 | [x] M15 | Presence / Typing / Read Receipt / Unread UI | M7, M8, M14 |
-| [~] M16 | Responsive Design, Accessibility & Visual Polish | M11–M15 |
-| [~] M17 | Automated Testing & Failure Scenarios | M2–M16 |
-| [~] M18 | Deployment, Logging & Observability | M1–M17 |
-| [ ] M19 | Final Audit, Documentation & Interview Preparation | M1–M18 |
+| [x] M16 | Responsive Design, Accessibility & Visual Polish | M11–M15 |
+| [x] M17 | Automated Testing & Failure Scenarios | M2–M16 |
+| [x] M18 | Deployment, Logging & Observability | M1–M17 |
+| [~] M19 | Final Audit, Documentation & Interview Preparation | M1–M18 |
 
 **Change from the originally proposed 15-item outline:** frontend work is split into five focused milestones (M11–M15: foundation, auth UI, conversation UI, real-time messaging UI, presence/typing/receipt UI) instead of one or two — a single frontend milestone would have covered routing, every screen, every real-time UI surface, and visual polish at once, too many unrelated concerns to review against one acceptance-criteria list. Security also gets its own dedicated milestone (M10) rather than being folded into "testing," since it's a distinct audit discipline (re-verifying trust boundaries) rather than a testing-coverage exercise. Net result: 19 implementation milestones instead of 14, each small enough to actually review.
