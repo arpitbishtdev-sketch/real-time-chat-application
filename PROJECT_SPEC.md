@@ -176,11 +176,11 @@ See CLAUDE.md §6 for the authoritative list. Summarized: bcrypt password hashin
 ### Reliability
 - [x] Offline recipient handling — message persists as `sent`, recovered via history/after-sync on the recipient's next connect (M9, TESTING.md #2)
 - [x] Missed-message synchronization — `GET /conversations/:id/messages?after=<lastKnownMessageId>`, tuple-cursor "newer direction" (M9, REALTIME.md §19, BACKEND.md §12, TESTING.md #6)
-- [ ] Network interruption recovery — covered on the backend (durable-path recovery, M9); the client-visible "Reconnecting…" UX itself is M14's concern (TESTING.md #5, an E2E case)
+- [x] Network interruption recovery — covered on the backend (durable-path recovery, M9); the client-visible "Reconnecting…" UX and its resync verified in M17 (`frontend/tests/useSocketConnection.test.jsx` + `e2e/tests/reconnection.spec.js`, TESTING.md #5/#6)
 - [x] Duplicate-message protection — `{conversationId, clientMessageId}` unique index + idempotent retry path (M5, REALTIME.md §13); verified specifically across a disconnect-before-ack retry (M9, TESTING.md #3) and a real process restart (M9, TESTING.md #7)
 - [x] Message acknowledgements — `{ok, message?, error?}` ack contract (M5, REALTIME.md §11)
 - [x] Server restart recovery (documented degradation) — durable data (Mongo) survives intact; in-memory presence resets to empty by construction (a new process can't inherit another's memory) and rebuilds correctly on reconnect — verified against a real spawned child process + real mongod, not simulated (M9, TESTING.md #7)
-- [~] Multiple tabs/devices support — presence correctly collapses per-user across sockets, and `typing:update` correctly excludes every one of the typer's own sockets (M7); `message:status` reaches every one of the sender's tabs/devices, and two tabs of the same reader calling `message:read` concurrently converge to the higher watermark with no lost/negative unread count (M8); full guarantee (including frontend rendering) still depends on M14/M15
+- [x] Multiple tabs/devices support — presence correctly collapses per-user across sockets, and `typing:update` correctly excludes every one of the typer's own sockets (M7); `message:status` reaches every one of the sender's tabs/devices, and two tabs of the same reader calling `message:read` concurrently converge to the higher watermark with no lost/negative unread count (M8); frontend rendering verified end-to-end in M17 (`e2e/tests/multi-tab.spec.js`, TESTING.md #17)
 - [x] Message ordering guarantees — per-conversation in-process send-ordering chain (M5, BACKEND.md §13c); read-side tuple-cursor ordering, correct under same-millisecond ties (M6, BACKEND.md §12, TESTING.md #32)
 
 ### Security
@@ -191,7 +191,7 @@ See CLAUDE.md §6 for the authoritative list. Summarized: bcrypt password hashin
 - [x] Message size limits — 4000-char cap enforced by Zod (pre-persistence, M5) and independently verified at the Mongoose `maxlength` layer directly, bypassing Zod (M10, TESTING.md #15, defense in depth)
 - [x] Rate limiting — auth endpoints (register/login/refresh, M2) and `message:send` (M10, REALTIME.md §25: token bucket, capacity 20/refill 2 per sec, per authenticated `userId`) — both verified to actually trigger under test, not just documented
 - [x] Secure cookie/token handling
-- [ ] XSS-safe message rendering
+- [x] XSS-safe message rendering — React's default text interpolation was already in place (`MessageBubble.jsx` never uses `dangerouslySetInnerHTML`); M17 added the missing regression test (`frontend/tests/MessageBubble.test.jsx`, TESTING.md §8)
 
 ## 19. Master Milestone Roadmap
 
@@ -685,6 +685,8 @@ See CLAUDE.md §6 for the authoritative list. Summarized: bcrypt password hashin
 **EDGE CASES:** all 33 — the full matrix, reconciled.
 **DOCUMENTATION TO UPDATE:** TESTING.md — mark every matrix row's final status.
 **INTERVIEW CONCEPTS:** test-pyramid shape for a real-time app; why socket events need their own test category distinct from REST integration tests; treating an edge-case matrix as a living contract, not a one-time checklist.
+
+**Note on M17 as-built (2026-09-05):** the walk of TESTING.md's matrix found M2–M10's own test suites (244 backend tests) already covered every backend-side row, including all of #26–33's concurrency/failure cases added in the pre-implementation audit — no backend gaps remained. The real gaps were frontend/E2E: no `useSocketConnection` hook-level reconnection-resync test (TESTING.md §6's own named target), no XSS-safe-rendering regression test (§8), and no E2E tooling at all despite TESTING.md §7 requiring it since the original draft. Closed via `frontend/tests/useSocketConnection.test.jsx`, `frontend/tests/MessageBubble.test.jsx`, and a new top-level `e2e/` Playwright package (TESTING.md §11/§12 has the full reconciliation and harness writeup) — 113 frontend + 5 E2E tests added/changed, on top of the pre-existing 244 backend + 108 frontend. A root-level `package.json` (`npm test`) wires the single CI-runnable command task 7 asked for, running all three layers in sequence.
 
 #### M18 — Deployment, Logging & Observability
 

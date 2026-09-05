@@ -1,0 +1,15 @@
+{
+  "name": "chat-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Workspace-level scripts only — backend/, frontend/, and e2e/ each keep their own package.json and dependencies (CLAUDE.md §3/§4); this file exists solely to give M17 a single CI-runnable command across all three, per PROJECT_SPEC.md M17 task 7.",
+  "scripts": {
+    "test:backend": "npm --prefix backend test",
+    "test:frontend": "npm --prefix frontend test",
+    "test:e2e": "npm --prefix e2e test",
+    "test": "npm run test:backend && npm run test:frontend && npm run test:e2e",
+    "lint:backend": "npm --prefix backend run lint",
+    "lint:frontend": "npm --prefix frontend run lint",
+    "lint": "npm run lint:backend && npm run lint:frontend"
+  }
+}

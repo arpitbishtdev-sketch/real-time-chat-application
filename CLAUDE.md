@@ -230,7 +230,7 @@ Living index — update statuses (`[ ]` / `[~]` / `[x]`) as milestones complete.
 | [~] M14 | Real-Time Messaging UI | M4, M5, M9, M13 |
 | [x] M15 | Presence / Typing / Read Receipt / Unread UI | M7, M8, M14 |
 | [~] M16 | Responsive Design, Accessibility & Visual Polish | M11–M15 |
-| [ ] M17 | Automated Testing & Failure Scenarios | M2–M16 |
+| [~] M17 | Automated Testing & Failure Scenarios | M2–M16 |
 | [ ] M18 | Deployment, Logging & Observability | M1–M17 |
 | [ ] M19 | Final Audit, Documentation & Interview Preparation | M1–M18 |
 

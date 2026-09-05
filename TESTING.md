@@ -193,3 +193,24 @@ For every case: **SCENARIO → EXPECTED BEHAVIOR → HOW WE TEST IT**
 **33. Logout on one device vs. all devices**
 → Logging out on one device deletes only that device's `Session` and does not invalidate any other device's refresh token; `POST /auth/logout-all` deletes every session for the user and disconnects their live sockets immediately (BACKEND.md §6a).
 → Integration test: log in twice (two `Session` documents, two refresh-token cookies simulating two devices), log out via device A's cookie, assert device B's refresh token still successfully refreshes. Separate test: call `POST /auth/logout-all` from either device, assert both devices' refresh tokens are now rejected and any connected sockets for that user are disconnected.
+
+---
+
+## 11. Matrix Reconciliation Status (M17, closed 2026-09-05)
+
+Every row of §10's matrix (cases 1–33) has a passing automated test, per CLAUDE.md §16's "never silently skip an edge case" rule — none deferred. Cases 1, 4, 8–16, 18–33 were already covered by their owning milestone's own test suite (M2–M10, cited inline above); M17's own additions closed the remainder:
+
+- **#5 (network interruption) and #6 (reconnection), client-visible half:** the backend-side guarantees were already covered (socket.reconnection.test.js), but the client-visible "Reconnecting…" UI transition and the browser-side resync trigger had no test anywhere until M17 added `frontend/tests/useSocketConnection.test.jsx` (hook-level: the after-cursor fetch/merge itself, matching this section's own §6 scope note) and `e2e/tests/reconnection.spec.js` (a real dropped-and-restored network, real Socket.IO reconnect, real UI).
+- **#17/#18 (multiple tabs/devices), UI half:** PROJECT_SPEC.md's M14/M15 acceptance criteria named an E2E test for this that didn't exist yet — `e2e/tests/multi-tab.spec.js` closes it (two pages, one browser context, one user).
+- **§7's three E2E flows** (register→search→converse; two-context live delivery + read receipts; offline/reconnect recovery) — none of these had any E2E tooling at all before M17; see §12 below for the harness that now runs them.
+- **§8's XSS-safe-rendering rendering test** — named explicitly in this document since the initial draft but never actually written; `frontend/tests/MessageBubble.test.jsx` closes it (PROJECT_SPEC.md §18's matching checklist row is now ticked).
+
+## 12. E2E Harness (M17)
+
+Playwright, per §7's original tooling choice — added only now because M17 is the first milestone whose scope actually requires it (CLAUDE.md §16: no dependency introduced before it's needed). Lives in a new top-level `e2e/` package (sibling to `backend/`/`frontend/`, its own `package.json`) rather than inside `frontend/`, since it drives both halves of the app as external black boxes rather than being frontend code itself.
+
+`e2e/support/backendServer.mjs` is the process Playwright's `webServer` config starts and stops: it boots a real, ephemeral MongoDB (`mongodb-memory-server`, the same real-instance convention `tests/helpers/mongoMemory.js` already uses backend-side) and spawns `backend/src/server.js` as a real child process against it — never a mock of either. The frontend half runs as the real `vite` dev server (not a production build) on a separate fixed port, so `frontend/vite.config.js`'s existing `/api`/`/socket.io` dev-proxy (already hardcoded to `localhost:5000`) needs no changes. Both processes are fresh per test run (`reuseExistingServer: false`) so no run starts with another run's leftover data — determinism over speed, consistent with this document's "keep tests deterministic" principle. Runs single-worker/non-parallel since every spec shares one backend + one database (specs use uniquely-generated emails so they never collide with each other's data, but running them concurrently against the same process would defeat the determinism goal regardless).
+
+Chromium-only (no cross-browser matrix): this suite's goal is verifying the layers are wired together correctly end-to-end, not cross-browser rendering fidelity — a deliberate scope tradeoff, not an oversight.
+
+**Known characteristic, not a bug:** `reconnection.spec.js` simulates a dropped connection via Playwright's `context.setOffline()` (browser-level network emulation), not a server-side kill. Depending on whether Chromium's offline emulation closes the live WebSocket transport promptly, Socket.IO's client falls back to detecting the drop via its ping-timeout heartbeat (defaults: 25s interval / 20s timeout, unconfigured in `backend/src/sockets/index.js`) — so this one spec's runtime varies between roughly 3s and 50s across runs. The test's timeouts are sized for the slow case rather than tuned to the common one, per "avoid brittle timing-based assertions."

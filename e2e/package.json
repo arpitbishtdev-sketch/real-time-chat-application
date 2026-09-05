@@ -1,0 +1,14 @@
+{
+  "name": "chat-app-e2e",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.1",
+    "mongodb-memory-server": "^11.2.0"
+  }
+}
