@@ -267,3 +267,48 @@ See full treatment in REALTIME.md §"Why Socket.IO was selected."
 **ALTERNATIVES:** Redis-backed Socket.IO adapter + presence store from day one.
 **TRADEOFF:** Accepting that presence state resets on restart and that the app can't horizontally scale as-is, in exchange for a system that's fully explainable without invoking infrastructure that isn't earning its keep yet.
 **INTERVIEW EXPLANATION:** "I know exactly what I'd add (Redis adapter, shared presence store) and why, but I didn't add it because there's no scale requirement driving it yet — I can explain the exact trigger that would make it worth adding."
+
+## 19. Deployment (M18)
+
+A documented, reproducible deployment path for the single-instance target described throughout this document — not a live/hosted deployment (PROJECT_SPEC.md M18: "a live deploy is optional/documented-as-possible, not mandatory"). Everything below was verified locally against a real production-mode process (real env validation, real MongoDB via `mongodb-memory-server`, real cookies/JWTs, a real Socket.IO handshake) — see BACKEND.md's Deployment addendum for the exact commands.
+
+### Decision: the backend process serves the frontend's build output (single origin, single process)
+**WHY:** PROJECT_SPEC.md M18 task 1 asks for a concrete "static asset serving strategy," and no deployment target/platform is pinned anywhere in these docs — this is that decision. `frontend/vite.config.js`'s dev proxy already treats the backend as the frontend's one upstream API/socket origin; carrying that same single-origin shape into production means `frontend/src`'s existing relative-path API calls (`api/client.js`) and same-origin Socket.IO client (`sockets/socketClient.js`) need **zero** production-specific configuration — no build-time API base URL, no separate CORS-with-credentials dance for the app's own frontend, and no separate static host/CDN to stand up for a project whose own stated scale target is one Node process.
+**ALTERNATIVES:** (a) Separate static hosting for the frontend build (Vercel/Netlify/S3+CDN) with the backend elsewhere, communicating cross-origin; (b) a reverse proxy (nginx) in front of two separate processes, unifying them at the network edge instead of in the app.
+**TRADEOFF:** Coupling frontend deploys to a backend redeploy (a frontend-only change needs `frontend/dist` rebuilt and shipped alongside the backend process, not an independent static-host deploy) and giving up a CDN's edge-caching for static assets, in exchange for zero cross-origin complexity and a topology that matches the project's own single-instance framing exactly. Option (a) is the better choice the moment this project actually needs independent frontend/backend deploy cadences or CDN-edge asset delivery — neither is a current requirement.
+**INTERVIEW EXPLANATION:** "I made the backend serve the built frontend from the same origin specifically because this project's own scale target is a single instance — introducing a separate static host or reverse-origin CORS setup would be infrastructure the project doesn't need yet, mirroring the same 'no unnecessary infrastructure' reasoning behind skipping Redis. I know exactly what changes (a build-time `VITE_API_URL`, real CORS-with-credentials, a separate host) if that ever needs to split."
+
+**As-built:** `backend/src/app.js` conditionally (`NODE_ENV=production` only) serves `frontend/dist` via `express.static`, then falls back to `index.html` for any non-`/api` GET request so client-side (React Router) routes survive a hard refresh or direct link. `/api/*` paths never fall into that fallback (an unmatched API path still returns the standard JSON 404 envelope). Dev/test are entirely unaffected — this code path is inert unless `NODE_ENV=production`, and no `frontend/dist` needs to exist for the backend's own test suite to pass.
+
+### Required environment variables (production)
+
+Same six variables BACKEND.md's env-config section already validates on boot (`backend/src/config/env.js`), with production-specific behavior called out:
+
+| Variable | Production behavior |
+|---|---|
+| `NODE_ENV` | Must be `production` — gates static-serving, `trust proxy`, cookie `Secure`, and `morgan`'s log format. |
+| `PORT` | The one port the process listens on for both REST and Socket.IO (they share the same `http.Server`). |
+| `MONGODB_URI` | Required always; no default in any environment. |
+| `CLIENT_ORIGIN` | **Required in production — no fallback default.** Dev's `http://localhost:5173` default would silently misconfigure CORS if left unset in production (nobody's real traffic originates there); `env.js` now fails fast at boot instead (M18 addition — see BACKEND.md). If serving the frontend from this same process (the decision above), set this to the app's own public URL. |
+| `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` | Required always, ≥32 chars, no default — generate independent long random values per environment, never reused from `.env.example` or across dev/staging/production. |
+
+### Process model & graceful shutdown
+
+Single Node process (`node src/server.js` / `npm start`), no cluster/PM2/process-manager mandated by these docs — run it under whatever the actual host provides (systemd, a container orchestrator, a platform's own process supervisor) for auto-restart-on-crash, since this app deliberately doesn't reimplement that itself.
+
+- **Startup:** connects to MongoDB (and waits for it) *before* the HTTP server starts accepting connections — a boot-time DB failure is a clean, loud startup failure (`process.exit(1)`), never a process that "runs" but 500s on every request.
+- **Shutdown (`SIGTERM`/`SIGINT`):** stops accepting new sockets → closes Socket.IO → closes the HTTP server (draining in-flight requests) → disconnects MongoDB → exits `0`. Verified locally by invoking the same shutdown path a real signal would trigger; cross-process `SIGTERM`/`SIGINT` delivery itself could not be verified from this Windows dev environment specifically (Node.js does not deliver real POSIX signals to a child process on Windows — `child.kill()` there terminates immediately regardless of signal name, a Node/Windows platform limitation, not an application bug) — this is expected to behave correctly on the Linux-based host any real deployment of this app would run on, where SIGTERM is delivered and handled exactly as coded.
+- **Uncaught exceptions / unhandled rejections:** logged loudly with the full error, then an immediate `process.exit(1)` — deliberately *not* the graceful path above, since a process that reached an unanticipated state shouldn't be trusted to drain itself cleanly. Verified locally by triggering both directly.
+
+### Health checks
+
+- `GET /api/health` — **liveness**: "is the process up." Never touches MongoDB; always `200` if the process can respond at all.
+- `GET /api/health/ready` — **readiness**: "can this instance actually serve requests right now." `200 {status:"ok", db:"connected"}` when Mongoose's connection is live, `503 {status:"unavailable", db:"disconnected"}` otherwise (TESTING.md #24, extended to this check specifically). An orchestrator should route traffic based on readiness and restart based on liveness — the two are deliberately allowed to disagree (DB down, process otherwise fine) rather than conflating "unhealthy" with "temporarily can't reach a dependency."
+
+### Logging
+
+`morgan` (`combined` format in production, `dev` in development, silenced under `NODE_ENV=test`) logs method/path/status/response-size/user-agent per request — never a request body, cookie value, or `Authorization` header, by construction of morgan's built-in formats. Everything else goes through `console.log`/`console.error`/`console.warn`; an audit of every call site plus a regression test (`tests/integration/logging.security.test.js`) confirm none of them ever log a submitted password or either JWT signing secret. `errorHandler.js` already distinguished operational errors (`AppError` → clean envelope, no stack) from programmer errors (anything else → full stack logged server-side, generic message returned to the client in production) before M18; this milestone only added the test proving it holds under an actual request, not a code-review assumption.
+
+### What's still genuinely missing for a real production deployment
+
+Per CLAUDE.md §16 — never claim "production-ready" without naming what isn't: **TLS termination** (this app speaks plain HTTP; a real deployment needs TLS at the process itself or a fronting proxy/load balancer — cookies are marked `Secure` in production, which means they're simply not sent at all over a plain-HTTP connection, by design, so TLS is not optional once `NODE_ENV=production`), **secrets management** (`.env`/raw environment variables here vs. a real secrets manager/vault), **monitoring/alerting/metrics** (structured request/error logging exists; there's no metrics pipeline, dashboard, or alerting on top of it), and **horizontal scaling** (§17 above — unchanged by M18, still a single process by design).

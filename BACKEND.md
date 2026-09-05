@@ -477,3 +477,24 @@ Message *sending* is intentionally **not** a REST endpoint — see §13.
 ## 16. What's Explicitly Not Implemented Yet
 
 Group conversations, message edit/delete, attachments, push notifications, socket connection-attempt rate limiting (REALTIME.md §25a), and an "active devices" management UI (the `Session` model supports it; no endpoint/UI is built for it beyond `logout-all`) — all deferred per PROJECT_SPEC.md §7. Do not add corresponding endpoints speculatively.
+
+## 17. Deployment (M18)
+
+Rationale, env-var table, health-check semantics, and shutdown behavior live in ARCHITECTURE.md §19 — this section is the exact command sequence only, kept here so it doesn't drift into a second copy of that reasoning.
+
+**Build & run, from a clean checkout:**
+```bash
+# 1. Build the frontend once — the backend serves this in production
+#    (ARCHITECTURE.md §19's static-serving decision).
+cd frontend && npm install && npm run build && cd ..
+
+# 2. Configure and start the backend.
+cd backend
+npm install
+cp .env.example .env   # fill in real values — see ARCHITECTURE.md §19's table
+NODE_ENV=production npm start
+```
+
+The single backend process now serves the REST API, Socket.IO, and the built frontend on `PORT`. `GET /api/health` and `GET /api/health/ready` are reachable immediately for a process manager/orchestrator to probe.
+
+**Stopping it:** send `SIGTERM` (a process manager's normal "stop" signal) or `SIGINT` (Ctrl+C) — `src/server.js` drains in-flight connections and disconnects MongoDB before exiting, rather than dropping live requests/sockets mid-flight.
