@@ -26,3 +26,8 @@ coverage/
 e2e/playwright-report/
 e2e/test-results/
 e2e/blob-report/
+
+# Local AI/dev-agent tooling state (machine-specific, not part of the app)
+.claude/
+.mcp.json
+.playwright-mcp/
