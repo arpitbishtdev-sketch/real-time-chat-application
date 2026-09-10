@@ -1,0 +1,24 @@
+# Render Blueprint — single web service serving both backend and built
+# frontend from one origin (ARCHITECTURE.md §19's documented deployment
+# decision). Secrets (MONGODB_URI, JWT_*) are intentionally NOT set here —
+# Render Blueprints support `sync: false` to require them to be entered
+# manually in the dashboard instead of committed to git.
+services:
+  - type: web
+    name: real-time-chat-application
+    runtime: node
+    plan: free
+    buildCommand: npm --prefix frontend install && npm --prefix frontend run build && npm --prefix backend install
+    startCommand: npm --prefix backend start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: CLIENT_ORIGIN
+        sync: false
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
